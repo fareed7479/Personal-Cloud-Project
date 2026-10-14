@@ -1,9 +1,11 @@
 import http from 'http';
+import https from 'https';
+import fs from 'fs';
 import { createApp } from './app';
 import { config } from './config';
 import { logger } from './logger';
 import { storageAdapter } from './storage/storageAdapter';
-import { disconnectDatabase } from './db/prisma';
+import { disconnectDatabase, initializeDatabasePragmas } from './db/prisma';
 import { indexingService } from './services/indexingService';
 import { discoveryService } from './services/discoveryService';
 import { socketService } from './services/socketService';
@@ -13,7 +15,10 @@ async function bootstrap() {
   logger.info(`Starting ${config.SERVER_NAME}...`);
   logger.info(`Environment: ${config.NODE_ENV}`);
 
-  // 1. Verify and initialize local storage root
+  // 1. Initialize SQLite Pragmas (WAL mode, busy_timeout=5000ms, foreign keys)
+  await initializeDatabasePragmas();
+
+  // 2. Verify and initialize local storage root
   const storageReady = await storageAdapter.verifyRootAccess();
   if (!storageReady) {
     logger.warn(`Storage root at '${storageAdapter.getRootPath()}' is currently not writable.`);
@@ -21,17 +26,37 @@ async function bootstrap() {
     logger.info(`Storage root verified at: ${storageAdapter.getRootPath()}`);
   }
 
-  // 2. Instantiate Express Application and HTTP Server
+  // 3. Instantiate Express Application and Server (HTTP or HTTPS)
   const app = createApp();
-  const server = http.createServer(app);
+  let server: http.Server | https.Server;
 
-  // 3. Initialize Socket.IO engine
+  if (config.HTTPS_ENABLED && config.SSL_KEY_PATH && config.SSL_CERT_PATH) {
+    if (!fs.existsSync(config.SSL_KEY_PATH) || !fs.existsSync(config.SSL_CERT_PATH)) {
+      throw new Error(
+        `SSL key or cert file missing: key='${config.SSL_KEY_PATH}', cert='${config.SSL_CERT_PATH}'`
+      );
+    }
+    const key = fs.readFileSync(config.SSL_KEY_PATH);
+    const cert = fs.readFileSync(config.SSL_CERT_PATH);
+    const ca = config.SSL_CA_PATH && fs.existsSync(config.SSL_CA_PATH)
+      ? fs.readFileSync(config.SSL_CA_PATH)
+      : undefined;
+
+    server = https.createServer({ key, cert, ca }, app);
+    logger.info('🔒 HTTPS/TLS enabled with provided certificates.');
+  } else {
+    server = http.createServer(app);
+  }
+
+  const protocol = config.HTTPS_ENABLED ? 'https' : 'http';
+
+  // 4. Initialize Socket.IO engine
   socketService.init(server);
 
-  // 4. Start listening
+  // 5. Start listening
   server.listen(config.PORT, config.HOST, async () => {
-    logger.info(`🚀 Server running at http://${config.HOST}:${config.PORT}`);
-    logger.info(`Health check available at http://${config.HOST}:${config.PORT}/api/v1/health`);
+    logger.info(`🚀 Server running at ${protocol}://${config.HOST}:${config.PORT}`);
+    logger.info(`Health check available at ${protocol}://${config.HOST}:${config.PORT}/api/v1/health`);
 
     // Start mDNS LAN advertising
     await discoveryService.startAdvertising();

@@ -7,8 +7,7 @@ import { VirtualFileMetadata, FileListQuery, UpdateFileRequest } from '@personal
 import { AppError } from '../middleware/errorHandler';
 import { prisma } from '../db/prisma';
 import { socketService } from './socketService';
-
-const INVALID_NAME_CHARS = /[<>:"/\\|?*\x00-\x1F]/;
+import { validateSafeFileName } from '../utils/securityUtils';
 
 export class FileService {
   async listFiles(query: FileListQuery): Promise<PaginatedFilesResult> {
@@ -38,9 +37,7 @@ export class FileService {
     // Handle Rename
     if (updates.name && updates.name.trim() !== current.name) {
       const trimmed = updates.name.trim();
-      if (!trimmed || INVALID_NAME_CHARS.test(trimmed)) {
-        throw new AppError('New file name contains invalid characters.', 400, 'INVALID_FILE_NAME');
-      }
+      validateSafeFileName(trimmed);
       newName = trimmed;
       const detected = detectMimeAndCategory(newName);
       newExtension = detected.extension;

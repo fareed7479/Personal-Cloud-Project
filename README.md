@@ -381,6 +381,26 @@ Mobile Client                                            Laptop Storage Server
 
 ---
 
+## Phase 6: Security & Reliability Hardening 🛡️🔒
+
+Phase 6 implements end-to-end security protections, threat mitigations, and reliability safeguards across the laptop server and mobile application.
+
+### 1. Hardening Highlights
+- **Threat Model**: Comprehensive risk assessment documented in [`docs/SECURITY_AND_THREAT_MODEL.md`](./docs/SECURITY_AND_THREAT_MODEL.md) covering 8 realistic threat vectors (unauthorized LAN devices, stolen credentials, path traversal, malicious filenames, disk exhaustion, interrupted transfers, accidental internet exposure, and token leakage).
+- **Filesystem Boundary Protection**: Fixed prefix collision attacks in `LocalStorageProvider` (`isPathInsideRoot`). Enforces canonical path resolution, symlink escape detection, and protects root directory against accidental deletion (`OPERATION_NOT_ALLOWED`).
+- **Malicious Filename Defense**: `validateSafeFileName` rejects Windows reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`), null-bytes (`\0`), control characters, trailing dots/spaces, and NTFS illegal characters (`<>:"/\\|?*`).
+- **Storage Disconnect Safety**: File operations fail safely with HTTP 503 `STORAGE_INACCESSIBLE` if the storage directory becomes unmounted or disconnected.
+- **Rate Limiting**: `express-rate-limit` enforces strict limits on pairing routes (`20 req / 15 min`) to thwart brute-force PIN attacks, and general LAN rate limits (`1000 req / min`).
+- **HTTP Security Headers**: `helmet` headers protect against clickjacking, MIME sniffing, and cross-origin resource leaks.
+- **Privacy-Conscious Logging**: `sanitizeUrlForLog` and `Logger.sanitizeMeta` automatically scrub tokens, PINs, passwords, and authorization headers from stdout and log files.
+- **Transport Security (TLS / HTTPS)**: Configurable HTTPS support via `HTTPS_ENABLED=true` and custom SSL certs/keys. Remote internet exposure is disabled by default. Strict certificate verification is maintained in production.
+- **Database Concurrency & Crash Resilience**: SQLite initialized on bootstrap with `PRAGMA journal_mode = WAL;`, `PRAGMA busy_timeout = 5000;`, and `PRAGMA foreign_keys = ON;`.
+- **System Diagnostics**: `GET /api/v1/health` provides real-time database connectivity, storage status, and memory usage metrics (`rssMb`, `heapUsedMb`).
+
+See [`docs/SECURITY_AND_THREAT_MODEL.md`](./docs/SECURITY_AND_THREAT_MODEL.md) for full deployment instructions, Windows Firewall rules, Task Scheduler auto-start, and metadata backup/restore procedures.
+
+---
+
 ## All Available Scripts
 
 | Command | Action |
@@ -388,9 +408,9 @@ Mobile Client                                            Laptop Storage Server
 | `npm run dev:server` | Start Express backend with hot reloading via `tsx watch` |
 | `npm run dev:mobile` | Start Expo development server |
 | `npm run build:server` | Compile TypeScript backend to `apps/server/dist` |
-| `npm run test` | Run all backend and mobile tests across workspaces (82 tests passing) |
-| `npm run test:server` | Run backend Supertest & Vitest test suites (68 tests passing) |
-| `npm run test:mobile` | Run mobile client Vitest test suites (14 tests passing) |
+| `npm run test` | Run all backend and mobile tests across workspaces (**121 tests passing**) |
+| `npm run test:server` | Run backend Supertest & Vitest test suites (**107 tests passing**) |
+| `npm run test:mobile` | Run mobile client Vitest test suites (**14 tests passing**) |
 | `npm run typecheck` | Run `tsc --noEmit` across all workspaces |
 | `npm run db:migrate` | Run Prisma database migrations |
 | `npm run db:generate` | Regenerate Prisma client |

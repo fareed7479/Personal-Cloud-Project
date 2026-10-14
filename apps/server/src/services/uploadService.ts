@@ -18,8 +18,8 @@ import {
   VirtualFileMetadata,
 } from '@personal-cloud/shared';
 import { prisma } from '../db/prisma';
+import { validateSafeFileName } from '../utils/securityUtils';
 
-const INVALID_NAME_CHARS = /[<>:"/\\|?*\x00-\x1F]/;
 const DEFAULT_CHUNK_SIZE = 1024 * 1024; // 1MB
 const SAFETY_DISK_RESERVE_BYTES = BigInt(50 * 1024 * 1024); // 50MB
 const SESSION_RETENTION_HOURS = 24;
@@ -32,10 +32,8 @@ export class UploadService {
     data: CreateUploadSessionRequest,
     deviceId?: string
   ): Promise<UploadSessionResponse> {
-    const trimmedName = data.fileName.trim();
-    if (!trimmedName || INVALID_NAME_CHARS.test(trimmedName) || path.basename(trimmedName) !== trimmedName) {
-      throw new AppError('File name contains invalid characters.', 400, 'INVALID_FILE_NAME');
-    }
+    const trimmedName = (data.fileName || '').trim();
+    validateSafeFileName(trimmedName);
 
     if (data.sizeBytes <= 0) {
       throw new AppError('File size must be greater than zero bytes.', 400, 'INVALID_FILE_SIZE');

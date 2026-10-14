@@ -18,10 +18,26 @@ class Logger {
     return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[this.minLevel];
   }
 
+  private sanitizeMeta(meta?: Record<string, unknown>): Record<string, unknown> | undefined {
+    if (!meta) return undefined;
+    const sanitized: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(meta)) {
+      if (/^(token|pin|password|secret|authtoken|authorization|key)$/i.test(key)) {
+        sanitized[key] = '[REDACTED]';
+      } else if (value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Error)) {
+        sanitized[key] = this.sanitizeMeta(value as Record<string, unknown>);
+      } else {
+        sanitized[key] = value;
+      }
+    }
+    return sanitized;
+  }
+
   private formatMessage(level: LogLevel, message: string, meta?: Record<string, unknown>): string {
     const timestamp = new Date().toISOString();
     const prefix = `[${timestamp}] [${level.toUpperCase()}]`;
-    const metaStr = meta && Object.keys(meta).length > 0 ? ` ${JSON.stringify(meta)}` : '';
+    const cleanMeta = this.sanitizeMeta(meta);
+    const metaStr = cleanMeta && Object.keys(cleanMeta).length > 0 ? ` ${JSON.stringify(cleanMeta)}` : '';
     return `${prefix} ${message}${metaStr}`;
   }
 

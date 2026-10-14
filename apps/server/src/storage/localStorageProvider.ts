@@ -10,6 +10,7 @@ import {
 import { config } from '../config';
 import { logger } from '../logger';
 import { AppError } from '../middleware/errorHandler';
+import { isPathInsideRoot } from '../utils/securityUtils';
 
 const INTERNAL_RESERVED_NAMES = new Set([
   '.cloud_internal',
@@ -91,14 +92,21 @@ export class LocalStorageProvider implements StorageProvider {
 
   public async resolveSafePath(relativePath: string): Promise<string> {
     const canonicalRoot = await this.getCanonicalRoot();
+
+    // Verify storage root is still physically present and accessible
+    if (!fs.existsSync(canonicalRoot)) {
+      throw new AppError(
+        'Configured storage directory is inaccessible or disconnected.',
+        503,
+        'STORAGE_INACCESSIBLE'
+      );
+    }
+
     const normalizedInput = relativePath.replace(/^(\/|\\)+/, '');
     const candidatePath = path.normalize(path.resolve(canonicalRoot, normalizedInput));
 
-    // Fast boundary check on candidate path
-    const rootLower = canonicalRoot.toLowerCase();
-    const candidateLower = candidatePath.toLowerCase();
-
-    if (!candidateLower.startsWith(rootLower)) {
+    // Strict boundary check (prevents prefix attacks like D:\Storage_other)
+    if (!isPathInsideRoot(candidatePath, canonicalRoot)) {
       logger.warn(`Path traversal attempt blocked: attempted '${relativePath}', resolved '${candidatePath}'`);
       throw new AppError('Access denied: Path escapes storage root boundary', 403, 'PATH_TRAVERSAL_DETECTED');
     }
@@ -106,7 +114,7 @@ export class LocalStorageProvider implements StorageProvider {
     // If path exists on disk, also check its realpath to prevent symlink bypass
     if (fs.existsSync(candidatePath)) {
       const realCandidate = await fsp.realpath(candidatePath);
-      if (!realCandidate.toLowerCase().startsWith(rootLower)) {
+      if (!isPathInsideRoot(realCandidate, canonicalRoot)) {
         logger.warn(`Symlink traversal attempt blocked: '${candidatePath}' targets '${realCandidate}'`);
         throw new AppError('Access denied: Symlink targets outside storage root', 403, 'PATH_TRAVERSAL_DETECTED');
       }
@@ -169,7 +177,7 @@ export class LocalStorageProvider implements StorageProvider {
         let stats: fs.Stats;
         if (entry.isSymbolicLink()) {
           const target = await fsp.realpath(fullChildPath);
-          if (!target.toLowerCase().startsWith(canonicalRoot.toLowerCase())) {
+          if (!isPathInsideRoot(target, canonicalRoot)) {
             // Symlink points outside root, skip for safety
             continue;
           }
@@ -201,7 +209,7 @@ export class LocalStorageProvider implements StorageProvider {
     const normalizedInput = relativePath.replace(/^(\/|\\)+/, '');
     const safePath = path.normalize(path.resolve(this.rawRootPath, normalizedInput));
 
-    if (!safePath.toLowerCase().startsWith(this.rawRootPath.toLowerCase())) {
+    if (!isPathInsideRoot(safePath, this.rawRootPath)) {
       throw new AppError('Access denied: Path escapes storage root boundary', 403, 'PATH_TRAVERSAL_DETECTED');
     }
 
@@ -212,7 +220,7 @@ export class LocalStorageProvider implements StorageProvider {
     const normalizedInput = relativePath.replace(/^(\/|\\)+/, '');
     const safePath = path.normalize(path.resolve(this.rawRootPath, normalizedInput));
 
-    if (!safePath.toLowerCase().startsWith(this.rawRootPath.toLowerCase())) {
+    if (!isPathInsideRoot(safePath, this.rawRootPath)) {
       throw new AppError('Access denied: Path escapes storage root boundary', 403, 'PATH_TRAVERSAL_DETECTED');
     }
 
@@ -226,6 +234,10 @@ export class LocalStorageProvider implements StorageProvider {
 
   public async deleteDirectory(relativePath: string, recursive = true): Promise<void> {
     const safePath = await this.resolveSafePath(relativePath);
+    const canonicalRoot = await this.getCanonicalRoot();
+    if (safePath.toLowerCase() === canonicalRoot.toLowerCase()) {
+      throw new AppError('Cannot delete storage root directory', 400, 'OPERATION_NOT_ALLOWED');
+    }
     await fsp.rm(safePath, { recursive, force: true });
   }
 

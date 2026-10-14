@@ -19,6 +19,8 @@ export async function getHealthHandler(req: Request, res: Response, next: NextFu
       overallStatus = 'degraded';
     }
 
+    const memUsage = process.memoryUsage();
+
     const healthData: HealthResponse = {
       status: overallStatus,
       serverName: config.SERVER_NAME,
@@ -35,8 +37,17 @@ export async function getHealthHandler(req: Request, res: Response, next: NextFu
         rootPath: storageAdapter.getRootPath(),
         diskSpace,
       },
+      diagnostics: {
+        memory: {
+          rssMb: Math.round((memUsage.rss / 1024 / 1024) * 100) / 100,
+          heapUsedMb: Math.round((memUsage.heapUsed / 1024 / 1024) * 100) / 100,
+          heapTotalMb: Math.round((memUsage.heapTotal / 1024 / 1024) * 100) / 100,
+        },
+        nodeVersion: process.version,
+        platform: process.platform,
+      },
       timestamp: new Date().toISOString(),
-    };
+    } as any;
 
     const response: ApiResponse<HealthResponse> = {
       success: overallStatus !== 'unhealthy',

@@ -6,8 +6,7 @@ import { socketService } from './socketService';
 import { VirtualFolderMetadata, UpdateFolderRequest } from '@personal-cloud/shared';
 import { AppError } from '../middleware/errorHandler';
 import { prisma } from '../db/prisma';
-
-const INVALID_NAME_CHARS = /[<>:"/\\|?*\x00-\x1F]/;
+import { validateSafeFileName } from '../utils/securityUtils';
 
 export class FolderService {
   async listFolders(parentId?: string | null, includeDeleted = false): Promise<VirtualFolderMetadata[]> {
@@ -23,14 +22,8 @@ export class FolderService {
   }
 
   async createFolder(name: string, parentId?: string | null): Promise<VirtualFolderMetadata> {
-    const trimmedName = name.trim();
-    if (!trimmedName || INVALID_NAME_CHARS.test(trimmedName)) {
-      throw new AppError(
-        'Folder name is empty or contains invalid filesystem characters.',
-        400,
-        'INVALID_FOLDER_NAME'
-      );
-    }
+    const trimmedName = (name || '').trim();
+    validateSafeFileName(trimmedName, 'INVALID_FOLDER_NAME');
 
     let parentRelPath = '';
     if (parentId) {
@@ -110,9 +103,7 @@ export class FolderService {
     // 1. Rename validation
     if (updates.name && updates.name.trim() !== current.name) {
       const trimmed = updates.name.trim();
-      if (!trimmed || INVALID_NAME_CHARS.test(trimmed)) {
-        throw new AppError('New folder name contains invalid characters.', 400, 'INVALID_FOLDER_NAME');
-      }
+      validateSafeFileName(trimmed, 'INVALID_FOLDER_NAME');
       newName = trimmed;
       pathChanged = true;
     }

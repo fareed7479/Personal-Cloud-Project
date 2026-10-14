@@ -19,7 +19,7 @@ export class NetworkDiscoveryService implements INetworkDiscoveryService {
       host: primaryHost,
       port: config.PORT,
       addresses,
-      protocol: 'http',
+      protocol: config.HTTPS_ENABLED ? 'https' : 'http',
       apiPrefix: '/api/v1',
       serverVersion: '0.1.0',
       fingerprint: getServerFingerprint(),

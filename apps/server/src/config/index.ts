@@ -14,6 +14,13 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default('*'),
   SERVER_NAME: z.string().default('Personal Cloud Server'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  HTTPS_ENABLED: z
+    .string()
+    .default('false')
+    .transform((val) => val === 'true' || val === '1'),
+  SSL_KEY_PATH: z.string().optional(),
+  SSL_CERT_PATH: z.string().optional(),
+  SSL_CA_PATH: z.string().optional(),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

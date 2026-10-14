@@ -16,6 +16,21 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 /**
+ * Configure SQLite pragmas for high concurrency and crash resilience.
+ */
+export async function initializeDatabasePragmas(): Promise<void> {
+  try {
+    await prisma.$executeRawUnsafe('PRAGMA journal_mode = WAL;');
+    await prisma.$executeRawUnsafe('PRAGMA busy_timeout = 5000;');
+    await prisma.$executeRawUnsafe('PRAGMA foreign_keys = ON;');
+    await prisma.$executeRawUnsafe('PRAGMA synchronous = NORMAL;');
+    logger.info('SQLite database configured: WAL mode, 5000ms busy_timeout, foreign_keys ON.');
+  } catch (err) {
+    logger.warn('Failed to configure SQLite pragmas', { error: (err as Error).message });
+  }
+}
+
+/**
  * Check if the SQLite database is reachable and operational.
  */
 export async function checkDatabaseConnection(): Promise<{ connected: boolean; latencyMs: number; error?: string }> {

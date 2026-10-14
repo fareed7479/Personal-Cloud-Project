@@ -41,7 +41,10 @@ export class PairingService {
       pin,
     });
 
-    logger.info(`🔑 New pairing challenge created: PIN [ ${pin} ] (Expires in 5 minutes)`);
+    logger.info(`🔑 New pairing challenge created: ID '${challenge.id}' (Expires in 5 minutes)`);
+    if (config.isDev) {
+      console.log(`\n========================================\n[LOCAL DEV PAIRING PIN]: ${pin}\n========================================\n`);
+    }
 
     return {
       challengeId: challenge.id,

@@ -6,8 +6,12 @@ import {
   approvePairingHandler,
   getPairingStatusHandler,
 } from '../controllers/pairingController';
+import { pairingRateLimiter } from '../middleware/rateLimiter';
 
 export const pairingRouter = Router();
+
+// Apply rate limiter specifically to pairing endpoints to prevent brute-force attacks
+pairingRouter.use('/pairing', pairingRateLimiter);
 
 // GET /api/v1/pairing/challenge (Active or new pairing challenge with PIN & QR data)
 pairingRouter.get('/pairing/challenge', getActiveChallengeHandler);
