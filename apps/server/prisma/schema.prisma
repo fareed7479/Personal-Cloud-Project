@@ -9,6 +9,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id          String   @id @default(uuid())
+  username    String   @unique
+  displayName String
+  email       String?  @unique
+  devices     Device[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 model Device {
   id          String   @id @default(uuid())
   deviceId    String   @unique
@@ -20,45 +31,83 @@ model Device {
   pairedAt    DateTime @default(now())
   lastSeenAt  DateTime @default(now())
 
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([deviceId])
+  @@index([userId])
+}
+
+model StorageVolume {
+  id          String   @id @default(uuid())
+  name        String
+  path        String   @unique
+  isDefault   Boolean  @default(true)
+  folders     Folder[]
+  files       File[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Folder {
-  id             String   @id @default(uuid())
-  name           String
-  path           String   @unique
-  parentId       String?
-  parent         Folder?  @relation("SubFolders", fields: [parentId], references: [id], onDelete: Cascade)
-  children       Folder[] @relation("SubFolders")
-  files          File[]
+  id          String         @id @default(uuid())
+  name        String
+  path        String         @unique // Virtual relative path (e.g. "Documents" or "Photos/2026")
+  parentId    String?
+  parent      Folder?        @relation("SubFolders", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Folder[]       @relation("SubFolders")
+  files       File[]
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  volumeId    String?
+  volume      StorageVolume? @relation(fields: [volumeId], references: [id], onDelete: SetNull)
+
+  isDeleted   Boolean        @default(false)
+  deletedAt   DateTime?
+
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 
   @@index([parentId])
+  @@index([isDeleted])
+  @@index([volumeId])
 }
 
 model File {
-  id             String   @id @default(uuid())
-  name           String
-  relativePath   String   @unique
-  sizeBytes      BigInt
-  mimeType       String   @default("application/octet-stream")
-  category       String   @default("other")
-  checksum       String?
-  folderId       String?
-  folder         Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  hasThumbnail   Boolean  @default(false)
-  thumbnailPath  String?
+  id            String         @id @default(uuid())
+  name          String
+  extension     String         @default("")
+  relativePath  String         @unique // Relative to storage root (e.g. "Documents/notes.txt")
+  sizeBytes     BigInt
+  mimeType      String         @default("application/octet-stream")
+  category      String         @default("other") // image, video, audio, document, archive, other
+  checksum      String?
+  
+  folderId      String?
+  folder        Folder?        @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  volumeId      String?
+  volume        StorageVolume? @relation(fields: [volumeId], references: [id], onDelete: SetNull)
+
+  hasThumbnail  Boolean        @default(false)
+  thumbnailPath String?
+
+  mtime         DateTime       @default(now()) // Filesystem modified time for smart rescan
+  status        String         @default("active") // "active" | "trash" | "archived"
+  isDeleted     Boolean        @default(false)
+  deletedAt     DateTime?
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   @@index([folderId])
   @@index([category])
+  @@index([isDeleted])
+  @@index([status])
+  @@index([volumeId])
 }
 
 model TransferJob {

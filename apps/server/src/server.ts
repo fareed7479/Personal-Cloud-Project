@@ -4,6 +4,7 @@ import { config } from './config';
 import { logger } from './logger';
 import { storageAdapter } from './storage/storageAdapter';
 import { disconnectDatabase } from './db/prisma';
+import { indexingService } from './services/indexingService';
 
 async function bootstrap() {
   logger.info(`Starting ${config.SERVER_NAME}...`);
@@ -25,6 +26,11 @@ async function bootstrap() {
   server.listen(config.PORT, config.HOST, () => {
     logger.info(`🚀 Server running at http://${config.HOST}:${config.PORT}`);
     logger.info(`Health check available at http://${config.HOST}:${config.PORT}/api/v1/health`);
+
+    // Trigger initial storage indexing scan in background
+    indexingService.scan().catch((err) => {
+      logger.warn(`Initial storage indexing scan warning: ${err.message}`);
+    });
   });
 
   // 4. Graceful Shutdown

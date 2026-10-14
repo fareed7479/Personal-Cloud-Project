@@ -10,7 +10,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { HealthResponse } from '@personal-cloud/shared';
+import { HealthResponse, StorageUsageInfo } from '@personal-cloud/shared';
 import { colors } from '../../src/theme/colors';
 import { apiClient } from '../../src/services/api/apiClient';
 import { ServerConfigService } from '../../src/services/config/serverConfig';
@@ -19,6 +19,7 @@ import { StatusBadge } from '../../src/components/StatusBadge';
 export default function HomeScreen() {
   const router = useRouter();
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [storageUsage, setStorageUsage] = useState<StorageUsageInfo | null>(null);
   const [serverUrl, setServerUrl] = useState<string>('');
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
@@ -26,12 +27,26 @@ export default function HomeScreen() {
     try {
       const url = await ServerConfigService.getServerUrl();
       setServerUrl(url);
-      const res = await apiClient.getHealth(url);
-      if (res.data) {
-        setHealth(res.data);
+
+      const [healthRes, usageRes] = await Promise.allSettled([
+        apiClient.getHealth(url),
+        apiClient.getStorageUsage(),
+      ]);
+
+      if (healthRes.status === 'fulfilled' && healthRes.value.data) {
+        setHealth(healthRes.value.data);
+      } else {
+        setHealth(null);
+      }
+
+      if (usageRes.status === 'fulfilled' && usageRes.value.data) {
+        setStorageUsage(usageRes.value.data);
+      } else {
+        setStorageUsage(null);
       }
     } catch {
       setHealth(null);
+      setStorageUsage(null);
     }
   };
 
@@ -45,6 +60,16 @@ export default function HomeScreen() {
     setRefreshing(true);
     await fetchStatus();
     setRefreshing(false);
+  };
+
+  const formatBytes = (bytes?: number): string => {
+    if (!bytes || bytes === 0) return '0 GB';
+    const gb = bytes / (1024 * 1024 * 1024);
+    if (gb < 0.1) {
+      const mb = bytes / (1024 * 1024);
+      return `${mb.toFixed(1)} MB`;
+    }
+    return `${gb.toFixed(1)} GB`;
   };
 
   const isConnected = !!health && health.status === 'healthy';
@@ -83,7 +108,7 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {/* Storage Concept Card */}
+      {/* Storage Architecture Card */}
       <View style={styles.storageCard}>
         <Text style={styles.sectionTitle}>Storage Architecture</Text>
         
@@ -93,7 +118,7 @@ export default function HomeScreen() {
               <Ionicons name="phone-portrait-outline" size={24} color={colors.secondary} />
             </View>
             <Text style={styles.storageBoxTitle}>Phone Storage</Text>
-            <Text style={styles.storageBoxSub}>Physical (Limited)</Text>
+            <Text style={styles.storageBoxSub}>Physical (Free)</Text>
             <Text style={styles.storageBoxDetail}>Zero file bloat</Text>
           </View>
 
@@ -104,12 +129,31 @@ export default function HomeScreen() {
               <Ionicons name="laptop-outline" size={24} color={colors.primary} />
             </View>
             <Text style={[styles.storageBoxTitle, { color: colors.primary }]}>Virtual Disk</Text>
-            <Text style={styles.storageBoxSub}>Laptop HDD / SSD</Text>
+            <Text style={styles.storageBoxSub}>Laptop Volume</Text>
             <Text style={styles.storageBoxDetail}>
-              {health?.storage.status === 'accessible' ? 'Online' : 'Standby'}
+              {storageUsage ? `${formatBytes(storageUsage.availableBytes)} free` : 'Standby'}
             </Text>
           </View>
         </View>
+
+        {storageUsage && (
+          <View style={styles.usageBreakdown}>
+            <View style={styles.usageMetric}>
+              <Text style={styles.metricLabel}>Managed Files</Text>
+              <Text style={styles.metricValue}>{storageUsage.fileCount} files</Text>
+            </View>
+            <View style={styles.metricDivider} />
+            <View style={styles.usageMetric}>
+              <Text style={styles.metricLabel}>Indexed Folders</Text>
+              <Text style={styles.metricValue}>{storageUsage.folderCount} folders</Text>
+            </View>
+            <View style={styles.metricDivider} />
+            <View style={styles.usageMetric}>
+              <Text style={styles.metricLabel}>App Storage</Text>
+              <Text style={styles.metricValue}>{formatBytes(storageUsage.appManagedBytes)}</Text>
+            </View>
+          </View>
+        )}
       </View>
 
       {/* Quick Navigation Cards */}
@@ -123,8 +167,11 @@ export default function HomeScreen() {
           <View style={[styles.actionIcon, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
             <Ionicons name="folder-open" size={24} color={colors.primary} />
           </View>
-          <Text style={styles.actionTitle}>Browse Files</Text>
-          <Text style={styles.actionSub}>Zero-download virtual file explorer</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.actionTitle}>Virtual File Explorer</Text>
+            <Text style={styles.actionSub}>Browse files and folders on demand</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -135,8 +182,11 @@ export default function HomeScreen() {
           <View style={[styles.actionIcon, { backgroundColor: 'rgba(129, 140, 248, 0.15)' }]}>
             <Ionicons name="link" size={24} color={colors.secondary} />
           </View>
-          <Text style={styles.actionTitle}>Laptop Connection</Text>
-          <Text style={styles.actionSub}>Test network link & verify status</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.actionTitle}>Laptop Connection</Text>
+            <Text style={styles.actionSub}>Test network link & verify status</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -147,8 +197,11 @@ export default function HomeScreen() {
           <View style={[styles.actionIcon, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
             <Ionicons name="options" size={24} color={colors.success} />
           </View>
-          <Text style={styles.actionTitle}>Settings & Cache</Text>
-          <Text style={styles.actionSub}>Manage offline storage & settings</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.actionTitle}>Settings & Cache</Text>
+            <Text style={styles.actionSub}>Manage offline storage & settings</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -265,6 +318,33 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     marginTop: 6,
     fontWeight: '500',
+  },
+  usageBreakdown: {
+    flexDirection: 'row',
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  usageMetric: {
+    alignItems: 'center',
+  },
+  metricLabel: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginBottom: 2,
+  },
+  metricValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  metricDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: colors.border,
   },
   actionsGrid: {
     gap: 12,

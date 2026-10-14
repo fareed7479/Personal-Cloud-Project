@@ -1,9 +1,26 @@
-import { ApiResponse, HealthResponse } from '@personal-cloud/shared';
+import {
+  ApiResponse,
+  HealthResponse,
+  VirtualFileMetadata,
+  VirtualFolderMetadata,
+  FileListQuery,
+  UpdateFileRequest,
+  StorageUsageInfo,
+  IndexingResult,
+} from '@personal-cloud/shared';
 import { ServerConfigService } from '../config/serverConfig';
 
 export interface ApiClientOptions {
   timeoutMs?: number;
   headers?: Record<string, string>;
+}
+
+export interface PaginatedFilesResponse {
+  files: VirtualFileMetadata[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 export class ApiClientError extends Error {
@@ -103,15 +120,68 @@ export class ApiClient {
     }
   }
 
-  /**
-   * Health Check API endpoint
-   */
+  /** Health Check API endpoint */
   async getHealth(overrideBaseUrl?: string): Promise<ApiResponse<HealthResponse>> {
     return this.request<HealthResponse>('/api/v1/health', {
       method: 'GET',
       overrideBaseUrl,
       timeoutMs: 5000,
     });
+  }
+
+  /** List indexed files with filtering, category, search, and pagination */
+  async getFiles(query: FileListQuery = {}): Promise<ApiResponse<PaginatedFilesResponse>> {
+    const params = new URLSearchParams();
+    if (query.folderId !== undefined) {
+      params.append('folderId', query.folderId === null ? 'null' : query.folderId);
+    }
+    if (query.search) params.append('search', query.search);
+    if (query.category && query.category !== 'all') params.append('category', query.category);
+    if (query.page) params.append('page', String(query.page));
+    if (query.limit) params.append('limit', String(query.limit));
+    if (query.sortBy) params.append('sortBy', query.sortBy);
+    if (query.sortOrder) params.append('sortOrder', query.sortOrder);
+    if (query.includeDeleted) params.append('includeDeleted', 'true');
+
+    const queryStr = params.toString() ? `?${params.toString()}` : '';
+    return this.request<PaginatedFilesResponse>(`/api/v1/files${queryStr}`, { method: 'GET' });
+  }
+
+  /** Get single file metadata by ID */
+  async getFileById(id: string): Promise<ApiResponse<VirtualFileMetadata>> {
+    return this.request<VirtualFileMetadata>(`/api/v1/files/${id}`, { method: 'GET' });
+  }
+
+  /** Update file metadata (rename, move, soft delete) */
+  async patchFile(id: string, updates: UpdateFileRequest): Promise<ApiResponse<VirtualFileMetadata>> {
+    return this.request<VirtualFileMetadata>(`/api/v1/files/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  /** List folders, optionally filtered by parent folder ID */
+  async getFolders(parentId?: string | null): Promise<ApiResponse<VirtualFolderMetadata[]>> {
+    const param = parentId !== undefined ? `?parentId=${parentId === null ? 'null' : parentId}` : '';
+    return this.request<VirtualFolderMetadata[]>(`/api/v1/folders${param}`, { method: 'GET' });
+  }
+
+  /** Create a new folder */
+  async createFolder(name: string, parentId?: string | null): Promise<ApiResponse<VirtualFolderMetadata>> {
+    return this.request<VirtualFolderMetadata>('/api/v1/folders', {
+      method: 'POST',
+      body: JSON.stringify({ name, parentId }),
+    });
+  }
+
+  /** Get disk capacity and app-managed file metrics */
+  async getStorageUsage(): Promise<ApiResponse<StorageUsageInfo>> {
+    return this.request<StorageUsageInfo>('/api/v1/storage/usage', { method: 'GET' });
+  }
+
+  /** Trigger an on-demand filesystem scan */
+  async rescanStorage(): Promise<ApiResponse<IndexingResult>> {
+    return this.request<IndexingResult>('/api/v1/storage/rescan', { method: 'POST' });
   }
 }
 
