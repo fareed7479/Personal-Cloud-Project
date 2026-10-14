@@ -1,5 +1,11 @@
 import { Router } from 'express';
-import { getFoldersHandler, createFolderHandler, getFolderBreadcrumbsHandler } from '../controllers/folderController';
+import {
+  getFoldersHandler,
+  createFolderHandler,
+  getFolderBreadcrumbsHandler,
+  updateFolderHandler,
+  deleteFolderHandler,
+} from '../controllers/folderController';
 import { authMiddleware } from '../middleware/authMiddleware';
 
 export const folderRouter = Router();
@@ -12,3 +18,9 @@ folderRouter.get('/folders/:id/breadcrumbs', authMiddleware, getFolderBreadcrumb
 
 // POST /api/v1/folders
 folderRouter.post('/folders', authMiddleware, createFolderHandler);
+
+// PATCH /api/v1/folders/:id (Rename / Move folder)
+folderRouter.patch('/folders/:id', authMiddleware, updateFolderHandler);
+
+// DELETE /api/v1/folders/:id (Delete folder with recursive protection)
+folderRouter.delete('/folders/:id', authMiddleware, deleteFolderHandler);

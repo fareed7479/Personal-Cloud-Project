@@ -6,6 +6,7 @@ import {
   downloadFileHandler,
   viewFileHandler,
   getThumbnailHandler,
+  deleteFileHandler,
 } from '../controllers/fileController';
 import { authMiddleware } from '../middleware/authMiddleware';
 
@@ -19,6 +20,9 @@ fileRouter.get('/files/:id', authMiddleware, getFileByIdHandler);
 
 // PATCH /api/v1/files/:id
 fileRouter.patch('/files/:id', authMiddleware, patchFileHandler);
+
+// DELETE /api/v1/files/:id (Soft delete or permanent disk unlink)
+fileRouter.delete('/files/:id', authMiddleware, deleteFileHandler);
 
 // GET /api/v1/files/:id/download (Attachment download)
 fileRouter.get('/files/:id/download', authMiddleware, downloadFileHandler);

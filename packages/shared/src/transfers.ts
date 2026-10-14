@@ -43,3 +43,33 @@ export interface InitiateTransferResponse {
   expectedChunks: number;
   uploadUrl: string;
 }
+
+export interface CreateUploadSessionRequest {
+  fileName: string;
+  sizeBytes: number;
+  folderId?: string | null;
+  chunkSize?: number;
+  mimeType?: string;
+  checksum?: string;
+}
+
+export interface UploadSessionResponse {
+  id: string;
+  fileName: string;
+  sizeBytes: number;
+  chunkSize: number;
+  totalChunks: number;
+  receivedChunks: number[];
+  folderId?: string | null;
+  status: 'active' | 'completed' | 'aborted' | 'expired';
+  expiresAt: string;
+}
+
+export interface UploadChunkResponse {
+  sessionId: string;
+  chunkNumber: number;
+  receivedChunksCount: number;
+  totalChunks: number;
+  bytesUploaded: number;
+  percentage: number;
+}

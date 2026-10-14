@@ -6,6 +6,8 @@ import { storageAdapter } from './storage/storageAdapter';
 import { disconnectDatabase } from './db/prisma';
 import { indexingService } from './services/indexingService';
 import { discoveryService } from './services/discoveryService';
+import { socketService } from './services/socketService';
+import { uploadService } from './services/uploadService';
 
 async function bootstrap() {
   logger.info(`Starting ${config.SERVER_NAME}...`);
@@ -19,11 +21,14 @@ async function bootstrap() {
     logger.info(`Storage root verified at: ${storageAdapter.getRootPath()}`);
   }
 
-  // 2. Instantiate Express Application
+  // 2. Instantiate Express Application and HTTP Server
   const app = createApp();
   const server = http.createServer(app);
 
-  // 3. Start listening
+  // 3. Initialize Socket.IO engine
+  socketService.init(server);
+
+  // 4. Start listening
   server.listen(config.PORT, config.HOST, async () => {
     logger.info(`🚀 Server running at http://${config.HOST}:${config.PORT}`);
     logger.info(`Health check available at http://${config.HOST}:${config.PORT}/api/v1/health`);
@@ -35,9 +40,14 @@ async function bootstrap() {
     indexingService.scan().catch((err) => {
       logger.warn(`Initial storage indexing scan warning: ${err.message}`);
     });
+
+    // Cleanup abandoned or expired upload sessions from prior runs
+    uploadService.cleanupAbandonedSessions().catch((err) => {
+      logger.warn(`Initial upload session cleanup warning: ${err.message}`);
+    });
   });
 
-  // 4. Graceful Shutdown
+  // 5. Graceful Shutdown
   let isShuttingDown = false;
 
   async function gracefulShutdown(signal: string) {
@@ -53,6 +63,9 @@ async function bootstrap() {
     try {
       // Stop mDNS service
       await discoveryService.stopAdvertising();
+
+      // Close real-time engine
+      await socketService.close();
 
       // Close HTTP server
       await new Promise<void>((resolve, reject) => {

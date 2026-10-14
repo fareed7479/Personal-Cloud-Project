@@ -146,3 +146,25 @@ model TransferJob {
 
   @@index([status])
 }
+
+model UploadSession {
+  id              String   @id @default(uuid())
+  fileName        String
+  sizeBytes       BigInt
+  mimeType        String   @default("application/octet-stream")
+  chunkSize       Int      @default(1048576) // Default 1MB
+  totalChunks     Int
+  receivedChunks  String   @default("[]") // JSON serialized array of chunk numbers
+  checksum        String?  // Optional client expected SHA-256
+  folderId        String?
+  tempDirPath     String
+  status          String   @default("active") // "active" | "completed" | "aborted" | "expired"
+  expiresAt       DateTime
+  deviceId        String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([expiresAt])
+}

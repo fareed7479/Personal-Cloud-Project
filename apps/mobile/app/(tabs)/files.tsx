@@ -25,6 +25,10 @@ import { downloadManager } from '../../src/services/download/downloadManager';
 import { LoadingState } from '../../src/components/LoadingState';
 import { ErrorState } from '../../src/components/ErrorState';
 import { FilePreviewModal } from '../../src/components/FilePreviewModal';
+import { TransferManagerModal } from '../../src/components/TransferManagerModal';
+import * as DocumentPicker from 'expo-document-picker';
+import { transferManager } from '../../src/services/transfer/transferManager';
+import { socketClient } from '../../src/services/socket/socketClient';
 
 interface BreadcrumbItem {
   id: string | null;
@@ -69,6 +73,27 @@ export default function FilesScreen() {
   // File Preview / Streaming Modal
   const [selectedFile, setSelectedFile] = useState<VirtualFileMetadata | null>(null);
   const [previewModalVisible, setPreviewModalVisible] = useState<boolean>(false);
+
+  // Transfer Manager Modal & Active Transfers count
+  const [transferModalVisible, setTransferModalVisible] = useState<boolean>(false);
+  const [activeTransferCount, setActiveTransferCount] = useState<number>(0);
+
+  // File / Folder Context Actions Sheet
+  const [actionSheetVisible, setActionSheetVisible] = useState<boolean>(false);
+  const [selectedActionItem, setSelectedActionItem] = useState<{
+    type: 'file' | 'folder';
+    data: VirtualFileMetadata | VirtualFolderMetadata;
+  } | null>(null);
+
+  // Rename Modal
+  const [renameModalVisible, setRenameModalVisible] = useState<boolean>(false);
+  const [renameValue, setRenameValue] = useState<string>('');
+  const [renaming, setRenaming] = useState<boolean>(false);
+
+  // Move Modal
+  const [moveModalVisible, setMoveModalVisible] = useState<boolean>(false);
+  const [allFolders, setAllFolders] = useState<VirtualFolderMetadata[]>([]);
+  const [moving, setMoving] = useState<boolean>(false);
 
   // Refresh downloaded files registry
   const refreshDownloadedList = useCallback(async () => {
@@ -140,6 +165,155 @@ export default function FilesScreen() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    const unsubTransfers = transferManager.subscribe((items) => {
+      const active = items.filter(
+        (t) => t.status === 'uploading' || t.status === 'downloading' || t.status === 'pending'
+      ).length;
+      setActiveTransferCount(active);
+    });
+
+    socketClient.connect().catch(() => {});
+    const unsubF1 = socketClient.onFileCreated(() => loadData(true));
+    const unsubF2 = socketClient.onFileUpdated(() => loadData(true));
+    const unsubF3 = socketClient.onFileDeleted(() => loadData(true));
+    const unsubD1 = socketClient.onFolderCreated(() => loadData(true));
+    const unsubD2 = socketClient.onFolderUpdated(() => loadData(true));
+    const unsubD3 = socketClient.onFolderDeleted(() => loadData(true));
+
+    return () => {
+      unsubTransfers();
+      unsubF1();
+      unsubF2();
+      unsubF3();
+      unsubD1();
+      unsubD2();
+      unsubD3();
+    };
+  }, [loadData]);
+
+  const handlePickAndUploadFile = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        await transferManager.queueUpload({
+          uri: asset.uri,
+          name: asset.name,
+          size: asset.size || 0,
+          mimeType: asset.mimeType || undefined,
+          folderId: currentFolderId,
+        });
+        setTransferModalVisible(true);
+      }
+    } catch (err) {
+      Alert.alert('Upload Error', err instanceof Error ? err.message : 'Could not pick file');
+    }
+  };
+
+  const openFileActionSheet = (file: VirtualFileMetadata) => {
+    setSelectedActionItem({ type: 'file', data: file });
+    setActionSheetVisible(true);
+  };
+
+  const openFolderActionSheet = (folder: VirtualFolderMetadata) => {
+    setSelectedActionItem({ type: 'folder', data: folder });
+    setActionSheetVisible(true);
+  };
+
+  const handleOpenRename = () => {
+    if (!selectedActionItem) return;
+    setRenameValue(selectedActionItem.data.name);
+    setActionSheetVisible(false);
+    setRenameModalVisible(true);
+  };
+
+  const handleSaveRename = async () => {
+    if (!selectedActionItem || !renameValue.trim()) return;
+    setRenaming(true);
+    try {
+      if (selectedActionItem.type === 'file') {
+        await apiClient.patchFile(selectedActionItem.data.id, { name: renameValue.trim() });
+      } else {
+        await apiClient.updateFolder(selectedActionItem.data.id, { name: renameValue.trim() });
+      }
+      setRenameModalVisible(false);
+      setSelectedActionItem(null);
+      loadData(true);
+    } catch (err: any) {
+      Alert.alert('Rename Error', err?.message || 'Could not rename item');
+    } finally {
+      setRenaming(false);
+    }
+  };
+
+  const handleOpenMove = async () => {
+    if (!selectedActionItem) return;
+    setActionSheetVisible(false);
+    try {
+      const res = await apiClient.getFolders();
+      setAllFolders(res.data || []);
+      setMoveModalVisible(true);
+    } catch (err) {
+      Alert.alert('Error', 'Could not load folders for move.');
+    }
+  };
+
+  const handleExecuteMove = async (targetFolderId: string | null) => {
+    if (!selectedActionItem) return;
+    setMoving(true);
+    try {
+      if (selectedActionItem.type === 'file') {
+        await apiClient.patchFile(selectedActionItem.data.id, { folderId: targetFolderId });
+      } else {
+        await apiClient.updateFolder(selectedActionItem.data.id, { parentId: targetFolderId });
+      }
+      setMoveModalVisible(false);
+      setSelectedActionItem(null);
+      loadData(true);
+    } catch (err: any) {
+      Alert.alert('Move Error', err?.message || 'Could not move item');
+    } finally {
+      setMoving(false);
+    }
+  };
+
+  const handleConfirmDelete = () => {
+    if (!selectedActionItem) return;
+    const isFolder = selectedActionItem.type === 'folder';
+    const name = selectedActionItem.data.name;
+
+    Alert.alert(
+      `Delete ${isFolder ? 'Folder' : 'File'}`,
+      `Are you sure you want to delete '${name}'?${isFolder ? ' All subfolders and files inside will be permanently deleted.' : ''}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              if (isFolder) {
+                await apiClient.deleteFolder(selectedActionItem.data.id, true);
+              } else {
+                await apiClient.deleteFile(selectedActionItem.data.id, false);
+              }
+              setActionSheetVisible(false);
+              setSelectedActionItem(null);
+              loadData(true);
+            } catch (err: any) {
+              Alert.alert('Delete Error', err?.message || 'Could not delete item');
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -249,14 +423,40 @@ export default function FilesScreen() {
           )}
         </View>
 
-        <TouchableOpacity
-          style={styles.newFolderButton}
-          onPress={() => setModalVisible(true)}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="folder-outline" size={18} color="#0F172A" />
-          <Ionicons name="add" size={14} color="#0F172A" style={{ marginLeft: -6 }} />
-        </TouchableOpacity>
+        <View style={styles.headerButtonsRow}>
+          <TouchableOpacity
+            style={styles.newFolderButton}
+            onPress={() => setModalVisible(true)}
+            activeOpacity={0.8}
+            accessibilityLabel="Create Folder"
+          >
+            <Ionicons name="folder-outline" size={18} color="#0F172A" />
+            <Ionicons name="add" size={14} color="#0F172A" style={{ marginLeft: -6 }} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.uploadButton}
+            onPress={handlePickAndUploadFile}
+            activeOpacity={0.8}
+            accessibilityLabel="Upload File"
+          >
+            <Ionicons name="cloud-upload-outline" size={18} color="#0F172A" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.transfersButton}
+            onPress={() => setTransferModalVisible(true)}
+            activeOpacity={0.8}
+            accessibilityLabel="Transfers Manager"
+          >
+            <Ionicons name="swap-vertical" size={18} color="#F8FAFC" />
+            {activeTransferCount > 0 && (
+              <View style={styles.transferBadge}>
+                <Text style={styles.transferBadgeText}>{activeTransferCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Category Filter Chips */}
@@ -381,7 +581,13 @@ export default function FilesScreen() {
                         {folder.fileCount ?? 0} files
                       </Text>
                     </View>
-                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                    <TouchableOpacity
+                      style={styles.moreButton}
+                      onPress={() => openFolderActionSheet(folder)}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Ionicons name="ellipsis-vertical" size={16} color={colors.textMuted} />
+                    </TouchableOpacity>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -436,6 +642,15 @@ export default function FilesScreen() {
                         <Text style={styles.virtualBadgeText}>Virtual</Text>
                       </View>
                     )}
+
+                    {/* More file actions button */}
+                    <TouchableOpacity
+                      style={styles.moreButton}
+                      onPress={() => openFileActionSheet(file)}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Ionicons name="ellipsis-vertical" size={16} color={colors.textMuted} />
+                    </TouchableOpacity>
                   </TouchableOpacity>
                 );
               })}
@@ -504,6 +719,145 @@ export default function FilesScreen() {
         onClose={() => setPreviewModalVisible(false)}
         onDownloadComplete={refreshDownloadedList}
       />
+
+      {/* Transfer Manager Queue Modal */}
+      <TransferManagerModal
+        visible={transferModalVisible}
+        onClose={() => setTransferModalVisible(false)}
+      />
+
+      {/* Item Context Actions Sheet */}
+      <Modal visible={actionSheetVisible} transparent animationType="fade" onRequestClose={() => setActionSheetVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setActionSheetVisible(false)}>
+          <View style={styles.actionSheetCard}>
+            <View style={styles.actionSheetHeader}>
+              <Ionicons
+                name={selectedActionItem?.type === 'folder' ? 'folder' : 'document-text'}
+                size={22}
+                color={colors.primary}
+              />
+              <Text style={styles.actionSheetTitle} numberOfLines={1}>
+                {selectedActionItem?.data.name}
+              </Text>
+            </View>
+
+            {selectedActionItem?.type === 'file' && (
+              <>
+                <TouchableOpacity
+                  style={styles.actionSheetOption}
+                  onPress={() => {
+                    setActionSheetVisible(false);
+                    handleOpenFilePreview(selectedActionItem.data as VirtualFileMetadata);
+                  }}
+                >
+                  <Ionicons name="eye-outline" size={20} color={colors.primary} />
+                  <Text style={styles.actionSheetOptionText}>Preview / Stream</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.actionSheetOption}
+                  onPress={async () => {
+                    setActionSheetVisible(false);
+                    await transferManager.queueDownload(selectedActionItem.data as VirtualFileMetadata);
+                    setTransferModalVisible(true);
+                  }}
+                >
+                  <Ionicons name="cloud-download-outline" size={20} color={colors.success} />
+                  <Text style={styles.actionSheetOptionText}>Download to Phone</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            <TouchableOpacity style={styles.actionSheetOption} onPress={handleOpenRename}>
+              <Ionicons name="pencil-outline" size={20} color="#38bdf8" />
+              <Text style={styles.actionSheetOptionText}>Rename</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.actionSheetOption} onPress={handleOpenMove}>
+              <Ionicons name="folder-open-outline" size={20} color="#fbbf24" />
+              <Text style={styles.actionSheetOptionText}>Move to Folder</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.actionSheetOption} onPress={handleConfirmDelete}>
+              <Ionicons name="trash-outline" size={20} color={colors.error} />
+              <Text style={[styles.actionSheetOptionText, { color: colors.error }]}>Delete</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Rename Modal */}
+      <Modal visible={renameModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.createFolderCard}>
+            <Text style={styles.createFolderTitle}>
+              Rename {selectedActionItem?.type === 'folder' ? 'Folder' : 'File'}
+            </Text>
+            <TextInput
+              style={styles.folderInput}
+              value={renameValue}
+              onChangeText={setRenameValue}
+              autoFocus
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => setRenameModalVisible(false)}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.createBtn}
+                onPress={handleSaveRename}
+                disabled={renaming}
+              >
+                <Text style={styles.createBtnText}>
+                  {renaming ? 'Saving...' : 'Save'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Move Destination Picker Modal */}
+      <Modal visible={moveModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.createFolderCard, { maxHeight: 420 }]}>
+            <Text style={styles.createFolderTitle}>Select Destination</Text>
+            <ScrollView style={{ marginTop: 12 }}>
+              <TouchableOpacity
+                style={styles.destinationRow}
+                onPress={() => handleExecuteMove(null)}
+              >
+                <Ionicons name="home-outline" size={20} color={colors.primary} />
+                <Text style={styles.destinationName}>Root (Top Level)</Text>
+              </TouchableOpacity>
+
+              {allFolders
+                .filter((f) => f.id !== selectedActionItem?.data.id)
+                .map((f) => (
+                  <TouchableOpacity
+                    key={f.id}
+                    style={styles.destinationRow}
+                    onPress={() => handleExecuteMove(f.id)}
+                  >
+                    <Ionicons name="folder-outline" size={20} color={colors.primary} />
+                    <Text style={styles.destinationName}>{f.path || f.name}</Text>
+                  </TouchableOpacity>
+                ))}
+            </ScrollView>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => setMoveModalVisible(false)}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -897,5 +1251,99 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     fontWeight: '600',
     fontSize: 14,
+  },
+  headerButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  uploadButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#38BDF8',
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+  },
+  transfersButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.card,
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    position: 'relative',
+  },
+  transferBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  transferBadgeText: {
+    color: '#0F172A',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  moreButton: {
+    padding: 6,
+    marginLeft: 6,
+  },
+  actionSheetCard: {
+    width: '90%',
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  actionSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    marginBottom: 8,
+  },
+  actionSheetTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    flex: 1,
+  },
+  actionSheetOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 6,
+  },
+  actionSheetOptionText: {
+    fontSize: 15,
+    color: colors.textPrimary,
+    fontWeight: '500',
+  },
+  destinationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  destinationName: {
+    fontSize: 14,
+    color: colors.textPrimary,
+    fontWeight: '500',
   },
 });

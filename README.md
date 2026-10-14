@@ -307,6 +307,80 @@ Mobile App (Phone)                                 Laptop Server
 
 ---
 
+---
+
+## Phase 5: File Operations, Reliable Resumable Transfers & Transfer Manager
+
+Phase 5 introduces complete bidirectional file management, resumable chunked uploads for large media, byte-range resumable downloads, and a bounded concurrency Mobile Transfer Manager.
+
+### 1. Resumable Chunked Upload Protocol
+Large media uploads from mobile devices can be interrupted by network drops, app backgrounding, or Wi-Fi changes. Phase 5 implements a stateful chunked upload protocol isolated from user-visible files:
+
+```
+Mobile Client                                            Laptop Storage Server
+     |                                                             |
+     | 1. POST /api/v1/uploads                                     |
+     |    { fileName, sizeBytes, chunkSize, checksum? }            |
+     |------------------------------------------------------------>|
+     |    201 Created: { sessionId, totalChunks, chunkSize }       |
+     |<------------------------------------------------------------|
+     |                                                             |
+     | 2. PUT /api/v1/uploads/:id/chunks/:chunkNumber              |
+     |    [Binary chunk slice in request body]                     |
+     |------------------------------------------------------------>|
+     |    200 OK: { chunkNumber, receivedChunksCount, percentage } |
+     |<------------------------------------------------------------|
+     |                                                             |
+     | 3. (Network drops / App restarts)                           |
+     |    GET /api/v1/uploads/:id/status                           |
+     |------------------------------------------------------------>|
+     |    200 OK: { receivedChunks: [1, 2, ...] }                  |
+     |<------------------------------------------------------------|
+     |                                                             |
+     | 4. Client sends only missing chunks                         |
+     |------------------------------------------------------------>|
+     |                                                             |
+     | 5. POST /api/v1/uploads/:id/complete                        |
+     |------------------------------------------------------------>|
+     |    - Sequential stream assembly into single file            |
+     |    - Verifies assembled byte size matches declared size     |
+     |    - Verifies SHA-256 checksum match                        |
+     |    - Atomic rename into storage directory                   |
+     |    - Prisma transaction creates metadata record             |
+     |    200 OK: VirtualFileMetadata                              |
+     |<------------------------------------------------------------|
+```
+
+- **Temporary Storage Isolation**: Active uploads write chunks to `.cloud_internal/uploads/:sessionId/chunk_N.part`. Incomplete uploads are NEVER exposed in virtual file listings until completed.
+- **24-Hour Session Retention**: Expired or aborted upload sessions are automatically pruned from disk and database by `UploadService.cleanupAbandonedSessions()`.
+- **Integrity Verification**: `POST /complete` verifies total byte length and computes SHA-256 hash. If client checksum is supplied, any mismatch rejects with `400 CHECKSUM_MISMATCH` and scrubs the temporary assembly file.
+- **Disk Safety Reserve**: Upload sessions verify laptop storage has available space plus a 50 MB safety margin, rejecting with `507 INSUFFICIENT_STORAGE` before accepting chunks.
+
+### 2. File & Directory Management Operations
+- **Folder Creation**: `POST /api/v1/folders` creates virtual folder and syncs directory to laptop disk.
+- **Folder Rename / Move**: `PATCH /api/v1/folders/:id` renames or moves folders. Includes **cycle detection** (`isDescendantOf`), rejecting attempts to move a folder into itself (`400 CANNOT_MOVE_INTO_SELF`) or into any of its subfolders (`400 CANNOT_MOVE_INTO_CHILD`). Automatically rewrites descendant paths in disk and database within a Prisma transaction.
+- **Folder Deletion**: `DELETE /api/v1/folders/:id` protects against accidental loss by rejecting non-empty folders (`400 FOLDER_NOT_EMPTY`). Passing `?recursive=true` recursively deletes all child folders and child files on disk and in database.
+- **File Rename / Move**: `PATCH /api/v1/files/:id` updates name or target folder, moving files safely on disk without leaving stale paths.
+- **File Deletion**: `DELETE /api/v1/files/:id` supports soft-delete or permanent unlinking (`?permanent=true`).
+- **Duplicate Prevention**: Rejects creating or renaming files/folders to an existing name at the same directory level (`409 FILE_ALREADY_EXISTS`, `409 FOLDER_ALREADY_EXISTS`).
+
+### 3. Mobile Transfer Manager & UI
+- **Bounded Concurrency**: Limits simultaneous uploads and downloads to `MAX_CONCURRENT_TRANSFERS = 2` to prevent memory exhaustion and connection starvation on mobile devices.
+- **State Machine**: Tracks transfers across `pending`, `uploading`, `downloading`, `paused`, `completed`, `failed`, and `cancelled` states.
+- **Resumable Downloads**: Uses byte ranges via `expo-file-system` (`createDownloadResumable`).
+- **Transfer Modal (`TransferManagerModal.tsx`)**: Displays real-time progress percentages, transfer speed (e.g. `1.2 MB/s`), transfer direction badges, error messages, and control buttons (Pause, Resume, Retry, Cancel).
+- **Document Picker**: Integrated with `expo-document-picker` to select files from device storage and queue them into the Transfer Manager.
+
+### 4. Real-Time Updates & Fallback Semantics
+- Socket.IO engine broadcasts `file:created`, `file:updated`, `file:deleted`, `folder:created`, `folder:updated`, `folder:deleted`, and `transfer:progress`.
+- **Graceful Fallback**: The core REST API upload, download, and file operations function 100% reliably even if Socket.IO is disconnected or blocked by network firewalls.
+
+### 5. Platform Background Transfer Considerations
+- **Android**: Long-running transfers when the screen is locked or app is sent to the background require foreground service notifications or WorkManager. The Mobile Transfer Manager saves active chunk indices and transfer progress in `AsyncStorage` (`@personal_cloud_transfer_queue`). If the OS suspends the app process, the transfers transition to `paused` state on restart, allowing one-tap resumption without re-uploading completed chunks.
+- **iOS**: iOS background URLSession limits granular chunk inspection. By using isolated chunk uploads of 512 KB – 1 MB, each chunk finishes quickly within standard background execution windows.
+
+---
+
 ## All Available Scripts
 
 | Command | Action |
@@ -314,9 +388,9 @@ Mobile App (Phone)                                 Laptop Server
 | `npm run dev:server` | Start Express backend with hot reloading via `tsx watch` |
 | `npm run dev:mobile` | Start Expo development server |
 | `npm run build:server` | Compile TypeScript backend to `apps/server/dist` |
-| `npm run test` | Run all backend and mobile tests across workspaces (58 tests) |
-| `npm run test:server` | Run backend Supertest & Vitest test suites (47 tests) |
-| `npm run test:mobile` | Run mobile client Vitest test suites (11 tests) |
+| `npm run test` | Run all backend and mobile tests across workspaces (82 tests passing) |
+| `npm run test:server` | Run backend Supertest & Vitest test suites (68 tests passing) |
+| `npm run test:mobile` | Run mobile client Vitest test suites (14 tests passing) |
 | `npm run typecheck` | Run `tsc --noEmit` across all workspaces |
 | `npm run db:migrate` | Run Prisma database migrations |
 | `npm run db:generate` | Regenerate Prisma client |

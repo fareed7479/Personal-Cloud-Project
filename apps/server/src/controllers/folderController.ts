@@ -81,3 +81,61 @@ export async function getFolderBreadcrumbsHandler(req: Request, res: Response, n
     next(err);
   }
 }
+
+const updateFolderSchema = z.object({
+  name: z.string().min(1, 'Folder name cannot be empty').max(255).optional(),
+  parentId: z.string().uuid().nullable().optional(),
+});
+
+export async function updateFolderHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const validation = updateFolderSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid folder update parameters',
+          details: validation.error.format(),
+        },
+        requestId: req.id,
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    const folder = await folderService.updateFolder(id, validation.data);
+
+    const response: ApiResponse<VirtualFolderMetadata> = {
+      success: true,
+      data: folder,
+      requestId: req.id,
+      timestamp: new Date().toISOString(),
+    };
+
+    res.status(200).json(response);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteFolderHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const recursive = req.query.recursive === 'true';
+
+    await folderService.deleteFolder(id, recursive);
+
+    const response: ApiResponse<{ id: string; deleted: boolean }> = {
+      success: true,
+      data: { id, deleted: true },
+      requestId: req.id,
+      timestamp: new Date().toISOString(),
+    };
+
+    res.status(200).json(response);
+  } catch (err) {
+    next(err);
+  }
+}

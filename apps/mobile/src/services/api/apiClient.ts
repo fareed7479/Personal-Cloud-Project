@@ -12,6 +12,10 @@ import {
   PairingRequestPayload,
   PairingStatusResponse,
   PairedDeviceRecord,
+  UpdateFolderRequest,
+  CreateUploadSessionRequest,
+  UploadSessionResponse,
+  UploadChunkResponse,
 } from '@personal-cloud/shared';
 import { ServerConfigService } from '../config/serverConfig';
 import { SecureStorageService } from '../auth/secureStorage';
@@ -273,6 +277,74 @@ export class ApiClient {
     const token = await SecureStorageService.getAuthToken();
     const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
     return `${baseUrl}/api/v1/files/${fileId}/download${tokenParam}`;
+  }
+
+  /** Update folder (rename / move) */
+  async updateFolder(id: string, updates: UpdateFolderRequest): Promise<ApiResponse<VirtualFolderMetadata>> {
+    return this.request<VirtualFolderMetadata>(`/api/v1/folders/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  /** Delete folder (with recursive protection) */
+  async deleteFolder(id: string, recursive = false): Promise<ApiResponse<{ id: string; deleted: boolean }>> {
+    return this.request<{ id: string; deleted: boolean }>(`/api/v1/folders/${id}?recursive=${recursive}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /** Delete file (soft or permanent) */
+  async deleteFile(id: string, permanent = false): Promise<ApiResponse<{ id: string; deleted: boolean; permanent: boolean }>> {
+    return this.request<{ id: string; deleted: boolean; permanent: boolean }>(`/api/v1/files/${id}?permanent=${permanent}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /** Initiate a chunked resumable upload session */
+  async createUploadSession(data: CreateUploadSessionRequest): Promise<ApiResponse<UploadSessionResponse>> {
+    return this.request<UploadSessionResponse>('/api/v1/uploads', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /** Upload an individual binary chunk */
+  async uploadChunk(
+    sessionId: string,
+    chunkNumber: number,
+    chunkBody: BodyInit
+  ): Promise<ApiResponse<UploadChunkResponse>> {
+    return this.request<UploadChunkResponse>(`/api/v1/uploads/${sessionId}/chunks/${chunkNumber}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+      },
+      body: chunkBody,
+      timeoutMs: 60000,
+    });
+  }
+
+  /** Check upload session status and received chunks */
+  async getUploadStatus(sessionId: string): Promise<ApiResponse<UploadSessionResponse>> {
+    return this.request<UploadSessionResponse>(`/api/v1/uploads/${sessionId}/status`, {
+      method: 'GET',
+    });
+  }
+
+  /** Finalize and verify uploaded session */
+  async completeUpload(sessionId: string): Promise<ApiResponse<VirtualFileMetadata>> {
+    return this.request<VirtualFileMetadata>(`/api/v1/uploads/${sessionId}/complete`, {
+      method: 'POST',
+      timeoutMs: 60000,
+    });
+  }
+
+  /** Abort upload session and clean up temporary chunks */
+  async abortUpload(sessionId: string): Promise<ApiResponse<{ aborted: boolean }>> {
+    return this.request<{ aborted: boolean }>(`/api/v1/uploads/${sessionId}`, {
+      method: 'DELETE',
+    });
   }
 }
 

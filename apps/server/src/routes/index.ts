@@ -6,6 +6,7 @@ import { deviceRouter } from './deviceRoutes';
 import { folderRouter } from './folderRoutes';
 import { fileRouter } from './fileRoutes';
 import { storageRouter } from './storageRoutes';
+import { uploadRouter } from './uploadRoutes';
 
 export const apiV1Router = Router();
 
@@ -19,3 +20,4 @@ apiV1Router.use('/', deviceRouter);
 apiV1Router.use('/', folderRouter);
 apiV1Router.use('/', fileRouter);
 apiV1Router.use('/', storageRouter);
+apiV1Router.use('/', uploadRouter);

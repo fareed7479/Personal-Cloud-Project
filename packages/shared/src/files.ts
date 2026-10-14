@@ -64,6 +64,11 @@ export interface CreateFolderRequest {
   parentId?: string | null;
 }
 
+export interface UpdateFolderRequest {
+  name?: string;
+  parentId?: string | null;
+}
+
 export interface UpdateFileRequest {
   name?: string;
   folderId?: string | null;

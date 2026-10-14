@@ -20,12 +20,20 @@ const listFilesQuerySchema = z.object({
   includeDeleted: z.enum(['true', 'false']).transform((v) => v === 'true').default('false'),
 });
 
-const patchFileSchema = z.object({
-  name: z.string().min(1).max(255).optional(),
-  folderId: z.string().uuid().nullable().optional(),
-  status: z.enum(['active', 'trash', 'archived']).optional(),
-  isDeleted: z.boolean().optional(),
-});
+const patchFileSchema = z
+  .object({
+    name: z.string().min(1).max(255).optional(),
+    folderId: z.string().uuid().nullable().optional(),
+    parentId: z.string().uuid().nullable().optional(),
+    status: z.enum(['active', 'trash', 'archived']).optional(),
+    isDeleted: z.boolean().optional(),
+  })
+  .transform((data) => ({
+    name: data.name,
+    folderId: data.folderId !== undefined ? data.folderId : data.parentId,
+    status: data.status,
+    isDeleted: data.isDeleted,
+  }));
 
 export async function getFilesHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -243,6 +251,26 @@ export async function getThumbnailHandler(req: Request, res: Response, next: Nex
     const stream = fs.createReadStream(thumbnail.filePath);
     stream.on('error', (err) => next(err));
     stream.pipe(res);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteFileHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const permanent = req.query.permanent === 'true';
+
+    await fileService.deleteFile(id, permanent);
+
+    const response: ApiResponse<{ id: string; deleted: boolean; permanent: boolean }> = {
+      success: true,
+      data: { id, deleted: true, permanent },
+      requestId: req.id,
+      timestamp: new Date().toISOString(),
+    };
+
+    res.status(200).json(response);
   } catch (err) {
     next(err);
   }

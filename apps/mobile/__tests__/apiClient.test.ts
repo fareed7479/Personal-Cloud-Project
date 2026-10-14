@@ -210,6 +210,111 @@ describe('Mobile API Client & Config Service', () => {
       expect(res.data?.length).toBe(2);
       expect(res.data?.[1].name).toBe('Work');
     });
+
+    it('should initiate and complete upload session via createUploadSession and completeUpload', async () => {
+      const mockFetch = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          json: async () => ({
+            success: true,
+            data: {
+              id: 'sess-123',
+              fileName: 'photo.jpg',
+              sizeBytes: 1024,
+              chunkSize: 512,
+              totalChunks: 2,
+              receivedChunks: [],
+              status: 'active',
+              expiresAt: new Date().toISOString(),
+            },
+          }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              id: 'file-999',
+              name: 'photo.jpg',
+              sizeBytes: 1024,
+              mimeType: 'image/jpeg',
+              category: 'image',
+              folderId: null,
+              relativePath: 'photo.jpg',
+              mtime: new Date().toISOString(),
+            },
+          }),
+        } as Response);
+
+      global.fetch = mockFetch;
+
+      const client = new ApiClient();
+      const initRes = await client.createUploadSession({
+        fileName: 'photo.jpg',
+        sizeBytes: 1024,
+      });
+
+      expect(initRes.success).toBe(true);
+      expect(initRes.data?.id).toBe('sess-123');
+
+      const compRes = await client.completeUpload('sess-123');
+      expect(compRes.success).toBe(true);
+      expect(compRes.data?.name).toBe('photo.jpg');
+    });
+
+    it('should update and delete folders via updateFolder and deleteFolder', async () => {
+      const mockFetch = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              id: 'fold-1',
+              name: 'NewFolderName',
+              path: 'NewFolderName',
+              parentId: null,
+            },
+          }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: { id: 'fold-1', deleted: true },
+          }),
+        } as Response);
+
+      global.fetch = mockFetch;
+
+      const client = new ApiClient();
+      const updateRes = await client.updateFolder('fold-1', { name: 'NewFolderName' });
+      expect(updateRes.success).toBe(true);
+      expect(updateRes.data?.name).toBe('NewFolderName');
+
+      const delRes = await client.deleteFolder('fold-1', true);
+      expect(delRes.success).toBe(true);
+      expect(delRes.data?.deleted).toBe(true);
+    });
+
+    it('should delete file via deleteFile', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          data: { id: 'file-1', deleted: true, permanent: false },
+        }),
+      } as Response);
+
+      const client = new ApiClient();
+      const res = await client.deleteFile('file-1', false);
+      expect(res.success).toBe(true);
+      expect(res.data?.deleted).toBe(true);
+    });
   });
 });
 

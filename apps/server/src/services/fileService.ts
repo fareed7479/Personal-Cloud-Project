@@ -5,6 +5,8 @@ import { localStorageProvider } from '../storage/localStorageProvider';
 import { detectMimeAndCategory } from '../utils/mimeUtils';
 import { VirtualFileMetadata, FileListQuery, UpdateFileRequest } from '@personal-cloud/shared';
 import { AppError } from '../middleware/errorHandler';
+import { prisma } from '../db/prisma';
+import { socketService } from './socketService';
 
 const INVALID_NAME_CHARS = /[<>:"/\\|?*\x00-\x1F]/;
 
@@ -85,7 +87,7 @@ export class FileService {
     const deletedAt = isDeleted && !current.isDeleted ? new Date() : !isDeleted ? null : current.deletedAt;
     const status = updates.status || (isDeleted ? 'trash' : current.status);
 
-    return fileRepository.update(id, {
+    const updated = await fileRepository.update(id, {
       name: newName,
       extension: newExtension,
       relativePath: newRelPath,
@@ -96,6 +98,24 @@ export class FileService {
       isDeleted,
       deletedAt: deletedAt ? new Date(deletedAt) : null,
     });
+
+    socketService.emitFileUpdated(updated);
+    return updated;
+  }
+
+  async deleteFile(id: string, permanent = false): Promise<void> {
+    const current = await this.getFileById(id);
+
+    if (permanent) {
+      if (await localStorageProvider.exists(current.relativePath)) {
+        await localStorageProvider.deleteFile(current.relativePath).catch(() => {});
+      }
+      await prisma.file.delete({ where: { id } });
+    } else {
+      await fileRepository.softDelete(id);
+    }
+
+    socketService.emitFileDeleted(id);
   }
 }
 

@@ -72,12 +72,10 @@ describe('Phase 4: Virtual File Browser, Streaming, Range Requests, and Thumbnai
       name: 'stream_test.txt',
       extension: 'txt',
       relativePath: 'stream_test.txt',
-      storageKey: 'stream_test.txt',
       mimeType: 'text/plain',
       category: 'document',
       sizeBytes: textStat.size,
       mtime: textStat.mtime,
-      streamable: false,
     });
     testTextFileId = textFile.id;
 
@@ -86,12 +84,10 @@ describe('Phase 4: Virtual File Browser, Streaming, Range Requests, and Thumbnai
       name: 'photo_test.png',
       extension: 'png',
       relativePath: 'photo_test.png',
-      storageKey: 'photo_test.png',
       mimeType: 'image/png',
       category: 'image',
       sizeBytes: imageStat.size,
       mtime: imageStat.mtime,
-      streamable: false,
     });
     testImageFileId = imageFile.id;
   });
