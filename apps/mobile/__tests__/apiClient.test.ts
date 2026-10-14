@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const memoryStore: Record<string, string> = {};
+const secureMemoryStore: Record<string, string> = {};
 
 vi.mock('@react-native-async-storage/async-storage', () => ({
   default: {
@@ -14,8 +15,33 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
   },
 }));
 
+vi.mock('expo-secure-store', () => ({
+  isAvailableAsync: vi.fn(async () => true),
+  getItemAsync: vi.fn(async (key: string) => secureMemoryStore[key] || null),
+  setItemAsync: vi.fn(async (key: string, val: string) => {
+    secureMemoryStore[key] = val;
+  }),
+  deleteItemAsync: vi.fn(async (key: string) => {
+    delete secureMemoryStore[key];
+  }),
+}));
+
+vi.mock('react-native', () => ({
+  Platform: {
+    OS: 'android',
+    select: (obj: Record<string, any>) => obj.android ?? obj.default,
+  },
+}));
+
+vi.mock('expo-constants', () => ({
+  default: {
+    deviceName: 'Test Phone',
+  },
+}));
+
 import { ServerConfigService } from '../src/services/config/serverConfig';
 import { ApiClient, ApiClientError } from '../src/services/api/apiClient';
+import { SecureStorageService } from '../src/services/auth/secureStorage';
 
 describe('Mobile API Client & Config Service', () => {
   beforeEach(() => {
@@ -42,6 +68,25 @@ describe('Mobile API Client & Config Service', () => {
 
       const retrieved = await ServerConfigService.getServerUrl();
       expect(retrieved).toBe(customUrl);
+    });
+  });
+
+  describe('SecureStorageService', () => {
+    it('should securely store and retrieve auth tokens without plain storage', async () => {
+      await SecureStorageService.setAuthToken('mock-secret-token-123');
+      const retrieved = await SecureStorageService.getAuthToken();
+      expect(retrieved).toBe('mock-secret-token-123');
+
+      await SecureStorageService.clearAuthToken();
+      const afterClear = await SecureStorageService.getAuthToken();
+      expect(afterClear).toBeNull();
+    });
+
+    it('should generate and persist a stable device ID', async () => {
+      const id1 = await SecureStorageService.getDeviceId();
+      expect(id1).toBeDefined();
+      const id2 = await SecureStorageService.getDeviceId();
+      expect(id1).toBe(id2);
     });
   });
 
@@ -77,6 +122,27 @@ describe('Mobile API Client & Config Service', () => {
       expect(res.data?.status).toBe('healthy');
       expect(res.data?.serverName).toBe('Test Server');
       expect(res.data?.database.connected).toBe(true);
+    });
+
+    it('should automatically inject Bearer auth token header when paired', async () => {
+      await SecureStorageService.setAuthToken('test-bearer-token');
+
+      let capturedHeaders: Record<string, string> | undefined;
+      global.fetch = vi.fn().mockImplementation(async (url, init) => {
+        capturedHeaders = init?.headers as Record<string, string>;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, data: [] }),
+        } as Response;
+      });
+
+      const client = new ApiClient();
+      await client.getFiles();
+
+      expect(capturedHeaders).toBeDefined();
+      expect(capturedHeaders?.['Authorization']).toBe('Bearer test-bearer-token');
+      await SecureStorageService.clearAuthToken();
     });
 
     it('should throw ApiClientError when server responds with 500 error payload', async () => {

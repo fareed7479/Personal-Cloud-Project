@@ -15,29 +15,39 @@ export interface DeviceIdentity {
 
 export interface PairedDeviceRecord extends DeviceIdentity {
   id: string;
-  pairedAt: Date;
-  lastSeenAt: Date;
+  pairedAt: Date | string;
+  lastSeenAt: Date | string;
   isRevoked: boolean;
+  revokedAt?: Date | string | null;
 }
 
-export interface PairingSessionRequest {
+export interface PairingChallengeData {
+  challengeId: string;
+  pin: string;
+  expiresAt: string;
+  qrPayload: string;
+  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'consumed';
+}
+
+export interface PairingRequestPayload {
+  challengeId: string;
+  pin: string;
   deviceId: string;
   deviceName: string;
   platform: DevicePlatform;
-  pairingPin?: string;
 }
 
-export interface PairingSessionResponse {
-  sessionId: string;
+export interface PairingStatusResponse {
+  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'consumed';
   token?: string;
-  expiresAt: string;
-  status: 'pending' | 'approved' | 'rejected' | 'expired';
+  deviceId?: string;
+  serverName?: string;
 }
 
 export interface AuthTokenPayload {
   deviceId: string;
   deviceName: string;
-  sessionId: string;
+  platform: DevicePlatform;
   iat: number;
   exp: number;
 }

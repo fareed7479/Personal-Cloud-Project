@@ -5,6 +5,7 @@ import { logger } from './logger';
 import { storageAdapter } from './storage/storageAdapter';
 import { disconnectDatabase } from './db/prisma';
 import { indexingService } from './services/indexingService';
+import { discoveryService } from './services/discoveryService';
 
 async function bootstrap() {
   logger.info(`Starting ${config.SERVER_NAME}...`);
@@ -23,9 +24,12 @@ async function bootstrap() {
   const server = http.createServer(app);
 
   // 3. Start listening
-  server.listen(config.PORT, config.HOST, () => {
+  server.listen(config.PORT, config.HOST, async () => {
     logger.info(`🚀 Server running at http://${config.HOST}:${config.PORT}`);
     logger.info(`Health check available at http://${config.HOST}:${config.PORT}/api/v1/health`);
+
+    // Start mDNS LAN advertising
+    await discoveryService.startAdvertising();
 
     // Trigger initial storage indexing scan in background
     indexingService.scan().catch((err) => {
@@ -47,6 +51,9 @@ async function bootstrap() {
     }, 10000);
 
     try {
+      // Stop mDNS service
+      await discoveryService.stopAdvertising();
+
       // Close HTTP server
       await new Promise<void>((resolve, reject) => {
         server.close((err) => {

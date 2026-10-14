@@ -7,11 +7,14 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { HealthResponse } from '@personal-cloud/shared';
+import { HealthResponse, PairingChallengeData } from '@personal-cloud/shared';
 import { colors } from '../../src/theme/colors';
 import { ServerConfigService } from '../../src/services/config/serverConfig';
+import { SecureStorageService } from '../../src/services/auth/secureStorage';
+import { connectionManager } from '../../src/services/connection/connectionManager';
 import { apiClient } from '../../src/services/api/apiClient';
 import { StatusBadge } from '../../src/components/StatusBadge';
 import { LoadingState } from '../../src/components/LoadingState';
@@ -25,6 +28,15 @@ export default function ConnectionScreen() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [latency, setLatency] = useState<number | null>(null);
 
+  // Pairing State
+  const [isPaired, setIsPaired] = useState<boolean>(false);
+  const [deviceId, setDeviceId] = useState<string>('');
+  const [deviceName, setDeviceName] = useState<string>('');
+  const [pinInput, setPinInput] = useState<string>('');
+  const [pairingChallenge, setPairingChallenge] = useState<PairingChallengeData | null>(null);
+  const [pairingInProgress, setPairingInProgress] = useState<boolean>(false);
+  const [pairingStatusMessage, setPairingStatusMessage] = useState<string>('');
+
   useEffect(() => {
     loadConfig();
   }, []);
@@ -32,7 +44,16 @@ export default function ConnectionScreen() {
   const loadConfig = async () => {
     const url = await ServerConfigService.getServerUrl();
     setServerUrl(url);
-    // Auto-test on load
+
+    const token = await SecureStorageService.getAuthToken();
+    setIsPaired(!!token);
+
+    const dId = await SecureStorageService.getDeviceId();
+    const dName = await SecureStorageService.getDeviceName();
+    setDeviceId(dId);
+    setDeviceName(dName);
+
+    // Test connection on initial load
     testConnection(url);
   };
 
@@ -53,6 +74,12 @@ export default function ConnectionScreen() {
       if (response.data) {
         setHealthData(response.data);
       }
+
+      // Check for active pairing challenge on server
+      const challenge = await connectionManager.fetchActiveChallenge(urlToTest);
+      if (challenge) {
+        setPairingChallenge(challenge);
+      }
     } catch (err: unknown) {
       setHealthData(null);
       setLatency(null);
@@ -61,6 +88,67 @@ export default function ConnectionScreen() {
     } finally {
       setTesting(false);
     }
+  };
+
+  const handleStartPairing = async () => {
+    if (!pinInput.trim() || pinInput.trim().length < 4) {
+      Alert.alert('PIN Required', 'Please enter the 6-digit pairing PIN shown on your laptop server.');
+      return;
+    }
+
+    setPairingInProgress(true);
+    setPairingStatusMessage('Connecting to laptop pairing challenge...');
+
+    try {
+      // If we don't have an active challenge ID yet, fetch it
+      let challengeId = pairingChallenge?.challengeId;
+      if (!challengeId) {
+        const challenge = await connectionManager.fetchActiveChallenge(serverUrl);
+        if (!challenge) {
+          throw new Error('No active pairing challenge found on the laptop. Make sure server is running.');
+        }
+        challengeId = challenge.challengeId;
+      }
+
+      const result = await connectionManager.pairWithServer(
+        challengeId,
+        pinInput.trim(),
+        (status) => setPairingStatusMessage(status),
+        serverUrl
+      );
+
+      if (result.success) {
+        setIsPaired(true);
+        setPinInput('');
+        Alert.alert('Device Paired! 🎉', 'Your mobile device is now authorized to browse and stream files.');
+      } else {
+        Alert.alert('Pairing Failed', result.error || 'Could not complete pairing.');
+      }
+    } catch (err) {
+      Alert.alert('Pairing Error', err instanceof Error ? err.message : 'Unknown error during pairing.');
+    } finally {
+      setPairingInProgress(false);
+      setPairingStatusMessage('');
+    }
+  };
+
+  const handleUnpair = () => {
+    Alert.alert(
+      'Revoke Pairing',
+      'Are you sure you want to unpair this phone? You will lose access to virtual files until re-paired.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Unpair & Revoke',
+          style: 'destructive',
+          onPress: async () => {
+            await connectionManager.disconnectAndRevoke();
+            setIsPaired(false);
+            Alert.alert('Unpaired', 'This device has been disconnected and its token revoked.');
+          },
+        },
+      ]
+    );
   };
 
   const saveConfiguration = async () => {
@@ -74,7 +162,7 @@ export default function ConnectionScreen() {
       const sanitized = await ServerConfigService.setServerUrl(serverUrl);
       setServerUrl(sanitized);
       Alert.alert('Configuration Saved', `Active server URL updated to:\n${sanitized}`);
-    } catch (err) {
+    } catch {
       Alert.alert('Save Failed', 'Could not save server URL to local storage.');
     } finally {
       setSaving(false);
@@ -88,19 +176,81 @@ export default function ConnectionScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Header card */}
+      {/* 1. Device Pairing Status Card */}
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardTitle}>Device Authorization</Text>
+          <StatusBadge
+            status={isPaired ? 'healthy' : 'degraded'}
+            label={isPaired ? 'Paired & Authorized' : 'Not Paired'}
+          />
+        </View>
+
+        {isPaired ? (
+          <View style={styles.pairedContainer}>
+            <View style={styles.deviceInfoRow}>
+              <Ionicons name="phone-portrait-outline" size={24} color={colors.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.deviceName}>{deviceName}</Text>
+                <Text style={styles.deviceId} numberOfLines={1}>ID: {deviceId}</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity style={styles.unpairButton} onPress={handleUnpair}>
+              <Ionicons name="lock-open-outline" size={16} color={colors.error} />
+              <Text style={styles.unpairButtonText}>Revoke Pairing</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.unpairedContainer}>
+            <Text style={styles.subtitle}>
+              Secure Pairing protects your laptop files from unauthorized access on the local Wi-Fi network.
+            </Text>
+
+            <View style={styles.pinBox}>
+              <Text style={styles.pinLabel}>Enter Laptop Pairing PIN (6-digits):</Text>
+              <TextInput
+                style={styles.pinInput}
+                value={pinInput}
+                onChangeText={setPinInput}
+                placeholder="123456"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="numeric"
+                maxLength={6}
+              />
+            </View>
+
+            {pairingInProgress ? (
+              <View style={styles.progressBox}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={styles.progressText}>{pairingStatusMessage}</Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.pairButton}
+                onPress={handleStartPairing}
+                disabled={pairingInProgress}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="shield-checkmark-outline" size={18} color="#0F172A" />
+                <Text style={styles.pairButtonText}>Pair with Laptop</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </View>
+
+      {/* 2. Server URL & Network Connection Card */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>Laptop Server URL</Text>
           <StatusBadge
-            status={
-              testing ? 'connecting' : healthData ? healthData.status : 'offline'
-            }
+            status={testing ? 'connecting' : healthData ? healthData.status : 'offline'}
           />
         </View>
 
         <Text style={styles.subtitle}>
-          Connect to your laptop over the local Wi-Fi network. Do not hardcode your IP; configure it here.
+          Connect over local Wi-Fi. mDNS discovery automatically resolves hostname or enter your laptop LAN IP manually.
         </Text>
 
         <View style={styles.inputContainer}>
@@ -119,16 +269,10 @@ export default function ConnectionScreen() {
         {/* Quick Presets */}
         <Text style={styles.presetsLabel}>Quick Presets:</Text>
         <View style={styles.presetsRow}>
-          <TouchableOpacity
-            style={styles.presetChip}
-            onPress={() => applyPreset('http://10.0.2.2:4000')}
-          >
+          <TouchableOpacity style={styles.presetChip} onPress={() => applyPreset('http://10.0.2.2:4000')}>
             <Text style={styles.presetText}>Android (10.0.2.2)</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.presetChip}
-            onPress={() => applyPreset('http://localhost:4000')}
-          >
+          <TouchableOpacity style={styles.presetChip} onPress={() => applyPreset('http://localhost:4000')}>
             <Text style={styles.presetText}>Localhost</Text>
           </TouchableOpacity>
         </View>
@@ -141,7 +285,7 @@ export default function ConnectionScreen() {
             disabled={testing}
           >
             <Ionicons name="refresh" size={18} color="#0F172A" />
-            <Text style={styles.testButtonText}>{testing ? 'Testing...' : 'Test Health'}</Text>
+            <Text style={styles.testButtonText}>{testing ? 'Testing...' : 'Test Link'}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -155,16 +299,14 @@ export default function ConnectionScreen() {
         </View>
       </View>
 
-      {/* Loading State */}
-      {testing && <LoadingState message="Connecting to laptop server health endpoint..." inline />}
-
-      {/* Error State */}
+      {/* Loading & Error States */}
+      {testing && <LoadingState message="Testing connection to laptop server..." inline />}
       {errorMsg && !testing && (
         <ErrorState
           title="Connection Failed"
           message={errorMsg}
           onRetry={() => testConnection()}
-          actionLabel="Retry Health Check"
+          actionLabel="Retry Link Check"
         />
       )}
 
@@ -172,10 +314,8 @@ export default function ConnectionScreen() {
       {healthData && !testing && (
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Live Health Diagnostics</Text>
-            {latency !== null && (
-              <Text style={styles.latencyText}>{latency} ms</Text>
-            )}
+            <Text style={styles.cardTitle}>Live Link Diagnostics</Text>
+            {latency !== null && <Text style={styles.latencyText}>{latency} ms</Text>}
           </View>
 
           <View style={styles.diagRow}>
@@ -190,37 +330,15 @@ export default function ConnectionScreen() {
 
           <View style={styles.diagRow}>
             <Text style={styles.diagLabel}>SQLite Database</Text>
-            <Text
-              style={[
-                styles.diagValue,
-                { color: healthData.database.connected ? colors.success : colors.error },
-              ]}
-            >
+            <Text style={[styles.diagValue, { color: healthData.database.connected ? colors.success : colors.error }]}>
               {healthData.database.connected ? 'Connected' : 'Offline'}
             </Text>
           </View>
 
           <View style={styles.diagRow}>
             <Text style={styles.diagLabel}>Storage Status</Text>
-            <Text
-              style={[
-                styles.diagValue,
-                {
-                  color:
-                    healthData.storage.status === 'accessible'
-                      ? colors.success
-                      : colors.warning,
-                },
-              ]}
-            >
+            <Text style={[styles.diagValue, { color: healthData.storage.status === 'accessible' ? colors.success : colors.warning }]}>
               {healthData.storage.status.toUpperCase()}
-            </Text>
-          </View>
-
-          <View style={styles.diagRow}>
-            <Text style={styles.diagLabel}>Storage Root</Text>
-            <Text style={styles.diagValueSmall} numberOfLines={1}>
-              {healthData.storage.rootPath}
             </Text>
           </View>
 
@@ -264,8 +382,102 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 13,
     color: colors.textSecondary,
-    marginBottom: 16,
+    marginBottom: 14,
     lineHeight: 18,
+  },
+  pairedContainer: {
+    gap: 12,
+    marginTop: 6,
+  },
+  deviceInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceLight,
+    padding: 12,
+    borderRadius: 12,
+    gap: 12,
+  },
+  deviceName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  deviceId: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  unpairButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.25)',
+    gap: 6,
+  },
+  unpairButtonText: {
+    color: colors.error,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  unpairedContainer: {
+    gap: 12,
+  },
+  pinBox: {
+    backgroundColor: colors.surfaceLight,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 8,
+  },
+  pinLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  pinInput: {
+    backgroundColor: colors.inputBg,
+    borderRadius: 8,
+    height: 48,
+    color: colors.primary,
+    fontSize: 22,
+    fontWeight: '800',
+    textAlign: 'center',
+    letterSpacing: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  pairButton: {
+    flexDirection: 'row',
+    backgroundColor: colors.primary,
+    height: 44,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pairButtonText: {
+    color: '#0F172A',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  progressBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    padding: 12,
+    borderRadius: 8,
+    gap: 10,
+  },
+  progressText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '600',
   },
   inputContainer: {
     flexDirection: 'row',
@@ -362,10 +574,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: colors.text,
-  },
-  diagValueSmall: {
-    fontSize: 11,
-    color: colors.textMuted,
-    maxWidth: '55%',
   },
 });

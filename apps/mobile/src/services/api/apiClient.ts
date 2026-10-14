@@ -7,8 +7,14 @@ import {
   UpdateFileRequest,
   StorageUsageInfo,
   IndexingResult,
+  ServerDiscoveryPayload,
+  PairingChallengeData,
+  PairingRequestPayload,
+  PairingStatusResponse,
+  PairedDeviceRecord,
 } from '@personal-cloud/shared';
 import { ServerConfigService } from '../config/serverConfig';
+import { SecureStorageService } from '../auth/secureStorage';
 
 export interface ApiClientOptions {
   timeoutMs?: number;
@@ -47,7 +53,7 @@ export class ApiClient {
 
   /**
    * Perform an HTTP request to the Personal Cloud server.
-   * If overrideBaseUrl is supplied, uses it; otherwise resolves from ServerConfigService.
+   * Injects Bearer token from SecureStore if present.
    */
   async request<T>(
     endpoint: string,
@@ -62,6 +68,9 @@ export class ApiClient {
     const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     const targetUrl = `${baseUrl}${normalizedEndpoint}`;
 
+    // Read secure token if available
+    const token = await SecureStorageService.getAuthToken();
+
     const controller = new AbortController();
     const timeoutTimer = setTimeout(() => {
       controller.abort();
@@ -74,6 +83,7 @@ export class ApiClient {
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
           ...(fetchOptions.headers || {}),
         },
       });
@@ -127,6 +137,56 @@ export class ApiClient {
       overrideBaseUrl,
       timeoutMs: 5000,
     });
+  }
+
+  /** Discovery info endpoint */
+  async getDiscoveryInfo(overrideBaseUrl?: string): Promise<ApiResponse<ServerDiscoveryPayload>> {
+    return this.request<ServerDiscoveryPayload>('/api/v1/discovery/info', {
+      method: 'GET',
+      overrideBaseUrl,
+      timeoutMs: 5000,
+    });
+  }
+
+  /** Get active pairing challenge with PIN and QR payload */
+  async getPairingChallenge(overrideBaseUrl?: string): Promise<ApiResponse<PairingChallengeData>> {
+    return this.request<PairingChallengeData>('/api/v1/pairing/challenge', {
+      method: 'GET',
+      overrideBaseUrl,
+    });
+  }
+
+  /** Submit PIN to request device pairing */
+  async requestPairing(
+    payload: PairingRequestPayload,
+    overrideBaseUrl?: string
+  ): Promise<ApiResponse<{ status: string; message: string }>> {
+    return this.request<{ status: string; message: string }>('/api/v1/pairing/request', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      overrideBaseUrl,
+    });
+  }
+
+  /** Poll pairing status and retrieve authorization token upon approval */
+  async getPairingStatus(
+    challengeId: string,
+    overrideBaseUrl?: string
+  ): Promise<ApiResponse<PairingStatusResponse>> {
+    return this.request<PairingStatusResponse>(`/api/v1/pairing/status/${challengeId}`, {
+      method: 'GET',
+      overrideBaseUrl,
+    });
+  }
+
+  /** List paired devices */
+  async getPairedDevices(): Promise<ApiResponse<PairedDeviceRecord[]>> {
+    return this.request<PairedDeviceRecord[]>('/api/v1/devices', { method: 'GET' });
+  }
+
+  /** Revoke a paired device */
+  async revokeDevice(deviceId: string): Promise<ApiResponse<PairedDeviceRecord>> {
+    return this.request<PairedDeviceRecord>(`/api/v1/devices/${deviceId}/revoke`, { method: 'POST' });
   }
 
   /** List indexed files with filtering, category, search, and pagination */

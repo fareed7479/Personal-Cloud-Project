@@ -21,24 +21,45 @@ model User {
 }
 
 model Device {
-  id          String   @id @default(uuid())
-  deviceId    String   @unique
-  deviceName  String
-  platform    String   @default("unknown")
-  appVersion  String?
-  fingerprint String?
-  isRevoked   Boolean  @default(false)
-  pairedAt    DateTime @default(now())
-  lastSeenAt  DateTime @default(now())
+  id            String    @id @default(uuid())
+  deviceId      String    @unique
+  deviceName    String
+  platform      String    @default("unknown")
+  appVersion    String?
+  fingerprint   String?
+  authTokenHash String?   @unique
+  isRevoked     Boolean   @default(false)
+  revokedAt     DateTime?
+  pairedAt      DateTime  @default(now())
+  lastSeenAt    DateTime  @default(now())
 
-  userId      String?
-  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId        String?
+  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@index([deviceId])
+  @@index([authTokenHash])
   @@index([userId])
+}
+
+model PairingChallenge {
+  id               String    @id @default(uuid())
+  pin              String    // 6-digit challenge PIN
+  expiresAt        DateTime
+  status           String    @default("pending") // "pending" | "approved" | "rejected" | "expired" | "consumed"
+  clientDeviceId   String?
+  clientDeviceName String?
+  clientPlatform   String?
+  issuedToken      String?   // Transferred once upon client polling after laptop approval
+  attempts         Int       @default(0)
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status])
+  @@index([expiresAt])
 }
 
 model StorageVolume {

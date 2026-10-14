@@ -2,14 +2,17 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import fsp from 'fs/promises';
 import path from 'path';
+import crypto from 'crypto';
 import { createApp } from '../src/app';
 import { disconnectDatabase, prisma } from '../src/db/prisma';
 import { localStorageProvider } from '../src/storage/localStorageProvider';
+import { deviceRepository } from '../src/repositories/deviceRepository';
 
 describe('Phase 2: Storage Engine, Indexing, and Metadata APIs', () => {
   const app = createApp();
   let testFolderId: string;
   let testFileId: string;
+  const testAuthToken = 'phase2-test-auth-token-xyz-123';
 
   const cleanDisk = async () => {
     try {
@@ -28,6 +31,16 @@ describe('Phase 2: Storage Engine, Indexing, and Metadata APIs', () => {
     // Clean test database records for predictable assertions
     await prisma.file.deleteMany({});
     await prisma.folder.deleteMany({});
+    await prisma.device.deleteMany({});
+
+    // Register a paired test device for auth access
+    const tokenHash = crypto.createHash('sha256').update(testAuthToken).digest('hex');
+    await deviceRepository.registerPairedDevice({
+      deviceId: 'phase2-test-device-id',
+      deviceName: 'Phase 2 Test Runner',
+      platform: 'desktop',
+      authTokenHash: tokenHash,
+    });
   });
 
   afterAll(async () => {
@@ -46,11 +59,13 @@ describe('Phase 2: Storage Engine, Indexing, and Metadata APIs', () => {
     });
 
     it('should not leak absolute physical paths in file responses', async () => {
-      const res = await request(app).get('/api/v1/files');
+      const res = await request(app)
+        .get('/api/v1/files')
+        .set('Authorization', `Bearer ${testAuthToken}`);
+
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      const strBody = JSON.stringify(res.body);
-      // Ensure absolute root or drive letter like "D:\" or "C:\" is not in files array
+
       res.body.data.files.forEach((file: Record<string, unknown>) => {
         expect(file).not.toHaveProperty('physicalPath');
         expect(file).not.toHaveProperty('absolutePath');
@@ -64,6 +79,7 @@ describe('Phase 2: Storage Engine, Indexing, and Metadata APIs', () => {
     it('should create a new folder via POST /api/v1/folders', async () => {
       const res = await request(app)
         .post('/api/v1/folders')
+        .set('Authorization', `Bearer ${testAuthToken}`)
         .send({ name: 'Documents' });
 
       expect(res.status).toBe(201);
@@ -82,6 +98,7 @@ describe('Phase 2: Storage Engine, Indexing, and Metadata APIs', () => {
     it('should reject duplicate folder names at the same level with 409', async () => {
       const res = await request(app)
         .post('/api/v1/folders')
+        .set('Authorization', `Bearer ${testAuthToken}`)
         .send({ name: 'Documents' });
 
       expect(res.status).toBe(409);
@@ -92,6 +109,7 @@ describe('Phase 2: Storage Engine, Indexing, and Metadata APIs', () => {
     it('should reject invalid folder names with 400', async () => {
       const res = await request(app)
         .post('/api/v1/folders')
+        .set('Authorization', `Bearer ${testAuthToken}`)
         .send({ name: 'Invalid/Name' });
 
       expect(res.status).toBe(400);
@@ -102,6 +120,7 @@ describe('Phase 2: Storage Engine, Indexing, and Metadata APIs', () => {
     it('should create a nested folder with parentId', async () => {
       const res = await request(app)
         .post('/api/v1/folders')
+        .set('Authorization', `Bearer ${testAuthToken}`)
         .send({ name: 'Work', parentId: testFolderId });
 
       expect(res.status).toBe(201);
@@ -116,13 +135,19 @@ describe('Phase 2: Storage Engine, Indexing, and Metadata APIs', () => {
     });
 
     it('should list folders and filter by parentId', async () => {
-      const res = await request(app).get('/api/v1/folders?parentId=null');
+      const res = await request(app)
+        .get('/api/v1/folders?parentId=null')
+        .set('Authorization', `Bearer ${testAuthToken}`);
+
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.data.some((f: { name: string }) => f.name === 'Documents')).toBe(true);
 
-      const subRes = await request(app).get(`/api/v1/folders?parentId=${testFolderId}`);
+      const subRes = await request(app)
+        .get(`/api/v1/folders?parentId=${testFolderId}`)
+        .set('Authorization', `Bearer ${testAuthToken}`);
+
       expect(subRes.status).toBe(200);
       expect(subRes.body.data.some((f: { name: string }) => f.name === 'Work')).toBe(true);
     });
@@ -138,7 +163,10 @@ describe('Phase 2: Storage Engine, Indexing, and Metadata APIs', () => {
     });
 
     it('should index disk files on POST /api/v1/storage/rescan', async () => {
-      const res = await request(app).post('/api/v1/storage/rescan');
+      const res = await request(app)
+        .post('/api/v1/storage/rescan')
+        .set('Authorization', `Bearer ${testAuthToken}`);
+
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.indexedFiles).toBeGreaterThanOrEqual(2);
@@ -146,7 +174,10 @@ describe('Phase 2: Storage Engine, Indexing, and Metadata APIs', () => {
     });
 
     it('should list indexed files on GET /api/v1/files', async () => {
-      const res = await request(app).get('/api/v1/files');
+      const res = await request(app)
+        .get('/api/v1/files')
+        .set('Authorization', `Bearer ${testAuthToken}`);
+
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.files.length).toBeGreaterThanOrEqual(2);
@@ -162,20 +193,29 @@ describe('Phase 2: Storage Engine, Indexing, and Metadata APIs', () => {
     });
 
     it('should filter files by category', async () => {
-      const res = await request(app).get('/api/v1/files?category=document');
+      const res = await request(app)
+        .get('/api/v1/files?category=document')
+        .set('Authorization', `Bearer ${testAuthToken}`);
+
       expect(res.status).toBe(200);
       expect(res.body.data.files.every((f: { category: string }) => f.category === 'document')).toBe(true);
     });
 
     it('should search files by name', async () => {
-      const res = await request(app).get('/api/v1/files?search=welcome');
+      const res = await request(app)
+        .get('/api/v1/files?search=welcome')
+        .set('Authorization', `Bearer ${testAuthToken}`);
+
       expect(res.status).toBe(200);
       expect(res.body.data.files).toHaveLength(1);
       expect(res.body.data.files[0].name).toBe('welcome.txt');
     });
 
     it('should get single file metadata on GET /api/v1/files/:id', async () => {
-      const res = await request(app).get(`/api/v1/files/${testFileId}`);
+      const res = await request(app)
+        .get(`/api/v1/files/${testFileId}`)
+        .set('Authorization', `Bearer ${testAuthToken}`);
+
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.id).toBe(testFileId);
@@ -183,7 +223,10 @@ describe('Phase 2: Storage Engine, Indexing, and Metadata APIs', () => {
     });
 
     it('should return 404 for unknown file ID', async () => {
-      const res = await request(app).get('/api/v1/files/00000000-0000-0000-0000-000000000000');
+      const res = await request(app)
+        .get('/api/v1/files/00000000-0000-0000-0000-000000000000')
+        .set('Authorization', `Bearer ${testAuthToken}`);
+
       expect(res.status).toBe(404);
       expect(res.body.success).toBe(false);
       expect(res.body.error.code).toBe('FILE_NOT_FOUND');
@@ -194,6 +237,7 @@ describe('Phase 2: Storage Engine, Indexing, and Metadata APIs', () => {
     it('should rename a file and update disk and metadata', async () => {
       const res = await request(app)
         .patch(`/api/v1/files/${testFileId}`)
+        .set('Authorization', `Bearer ${testAuthToken}`)
         .send({ name: 'welcome_renamed.txt' });
 
       expect(res.status).toBe(200);
@@ -211,6 +255,7 @@ describe('Phase 2: Storage Engine, Indexing, and Metadata APIs', () => {
     it('should soft-delete a file', async () => {
       const res = await request(app)
         .patch(`/api/v1/files/${testFileId}`)
+        .set('Authorization', `Bearer ${testAuthToken}`)
         .send({ isDeleted: true });
 
       expect(res.status).toBe(200);
@@ -218,14 +263,20 @@ describe('Phase 2: Storage Engine, Indexing, and Metadata APIs', () => {
       expect(res.body.data.status).toBe('trash');
 
       // Default GET /api/v1/files should exclude deleted files
-      const listRes = await request(app).get('/api/v1/files');
+      const listRes = await request(app)
+        .get('/api/v1/files')
+        .set('Authorization', `Bearer ${testAuthToken}`);
+
       expect(listRes.body.data.files.some((f: { id: string }) => f.id === testFileId)).toBe(false);
     });
   });
 
   describe('Storage Usage (GET /api/v1/storage/usage)', () => {
     it('should report physical capacity, available bytes, and managed files', async () => {
-      const res = await request(app).get('/api/v1/storage/usage');
+      const res = await request(app)
+        .get('/api/v1/storage/usage')
+        .set('Authorization', `Bearer ${testAuthToken}`);
+
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
 
