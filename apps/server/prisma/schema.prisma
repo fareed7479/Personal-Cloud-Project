@@ -1,0 +1,78 @@
+// Prisma schema for Personal Cloud Project (SQLite)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Device {
+  id          String   @id @default(uuid())
+  deviceId    String   @unique
+  deviceName  String
+  platform    String   @default("unknown")
+  appVersion  String?
+  fingerprint String?
+  isRevoked   Boolean  @default(false)
+  pairedAt    DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([deviceId])
+}
+
+model Folder {
+  id             String   @id @default(uuid())
+  name           String
+  path           String   @unique
+  parentId       String?
+  parent         Folder?  @relation("SubFolders", fields: [parentId], references: [id], onDelete: Cascade)
+  children       Folder[] @relation("SubFolders")
+  files          File[]
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([parentId])
+}
+
+model File {
+  id             String   @id @default(uuid())
+  name           String
+  relativePath   String   @unique
+  sizeBytes      BigInt
+  mimeType       String   @default("application/octet-stream")
+  category       String   @default("other")
+  checksum       String?
+  folderId       String?
+  folder         Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  hasThumbnail   Boolean  @default(false)
+  thumbnailPath  String?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([folderId])
+  @@index([category])
+}
+
+model TransferJob {
+  id               String   @id @default(uuid())
+  type             String   // "upload" | "download"
+  fileName         String
+  fileId           String?
+  bytesTransferred BigInt   @default(0)
+  totalBytes       BigInt
+  status           String   @default("queued") // "queued" | "in_progress" | "completed" | "failed" | "cancelled"
+  errorMessage     String?
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([status])
+}

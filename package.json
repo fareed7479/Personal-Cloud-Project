@@ -1,0 +1,26 @@
+{
+  "name": "personal-cloud-project",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Turn your laptop into a virtual personal cloud storage for mobile devices",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev --workspace=apps/server",
+    "dev:mobile": "npm run start --workspace=apps/mobile",
+    "build:server": "npm run build --workspace=apps/server",
+    "test": "npm run test:server && npm run test:mobile",
+    "test:server": "npm run test --workspace=apps/server",
+    "test:mobile": "npm run test --workspace=apps/mobile",
+    "typecheck": "npm run typecheck --workspace=packages/shared && npm run typecheck --workspace=apps/server && npm run typecheck --workspace=apps/mobile",
+    "lint": "npm run lint --workspaces --if-present",
+    "db:generate": "npm run db:generate --workspace=apps/server",
+    "db:migrate": "npm run db:migrate --workspace=apps/server"
+  },
+  "devDependencies": {
+    "prettier": "^3.5.0",
+    "typescript": "^5.8.0"
+  }
+}
