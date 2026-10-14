@@ -207,8 +207,27 @@ Update file metadata (rename file on disk & database, move folders, or soft-dele
   }
   ```
 
+#### `GET /api/v1/files/:id/view` (or `/api/v1/files/:id/content`)
+Streams file content with HTTP Byte-Range support (`Range: bytes=start-end`).
+- Returns `206 Partial Content`, `Content-Range: bytes start-end/total`, `Accept-Ranges: bytes`, and `Content-Length`.
+- Returns `416 Range Not Satisfiable` for out-of-bounds or invalid ranges.
+- Returns `200 OK` when no `Range` header is present.
+- Supports both `Authorization: Bearer <token>` and `?token=<token>` query authentication for native media player components.
+
+#### `GET /api/v1/files/:id/download`
+Downloads the file as an attachment (`Content-Disposition: attachment; filename="..."`).
+
+#### `GET /api/v1/files/:id/thumbnail`
+Lazily generates and caches a scaled WebP thumbnail for images (`?width=256&height=256`).
+- Thumbnails are cached on disk under `.cloud_internal/thumbnails/` and invalidated when source file `mtime` changes.
+- Large images are processed via Sharp streams without buffering whole files into server RAM.
+- Subsequent requests are served directly from the disk cache with `Cache-Control: public, max-age=86400`.
+
 #### `GET /api/v1/folders`
 List folders. Supports filtering by parent: `?parentId=<folderId>` or `?parentId=null` for root folders.
+
+#### `GET /api/v1/folders/:id/breadcrumbs`
+Returns ordered breadcrumb ancestor path from root to the specified folder (`[{ id, name, path }]`).
 
 #### `POST /api/v1/folders`
 Create a new folder on the laptop disk and register it in the database.
@@ -229,6 +248,16 @@ Reports:
 
 #### `POST /api/v1/storage/rescan`
 Triggers an on-demand filesystem scan to index new files, update modified files (using fast `mtime` and `sizeBytes` detection), and soft-delete files removed from disk.
+
+---
+
+## Virtual Storage Semantics & Mobile Previews
+
+1. **Remote Virtual Storage**: Browsing directories loads metadata only (file names, sizes, categories, modification timestamps). File contents remain on the laptop disk and are not silently downloaded when opening a folder.
+2. **On-Demand Streaming**: Audio and video stream directly over Wi-Fi using standard HTTP byte ranges (`206 Partial Content`), allowing immediate scrubbing and playback without pre-downloading the entire video.
+3. **Lazy Thumbnail Generation**: Scaled WebP thumbnails are generated on the laptop on demand and cached separately in `.cloud_internal/thumbnails`. Listing a directory with thousands of photos never triggers synchronous bulk resizing.
+4. **Explicit Downloads**: Users can explicitly tap "Download to Phone" to save a file into an app-managed location (`expo-file-system`). Downloaded files are tracked locally with a green "Local" badge for offline viewing and can be removed to free device storage without deleting the remote laptop file.
+5. **Clear Bandwidth & Availability Indicators**: The app clearly identifies whether files are stored remotely on the laptop or saved locally, and warns that streaming requires the laptop to remain online on the same local network.
 
 ---
 
@@ -285,9 +314,9 @@ Mobile App (Phone)                                 Laptop Server
 | `npm run dev:server` | Start Express backend with hot reloading via `tsx watch` |
 | `npm run dev:mobile` | Start Expo development server |
 | `npm run build:server` | Compile TypeScript backend to `apps/server/dist` |
-| `npm run test` | Run all backend and mobile tests across workspaces (42 tests) |
-| `npm run test:server` | Run backend Supertest & Vitest test suites (33 tests) |
-| `npm run test:mobile` | Run mobile client Vitest test suites (9 tests) |
+| `npm run test` | Run all backend and mobile tests across workspaces (58 tests) |
+| `npm run test:server` | Run backend Supertest & Vitest test suites (47 tests) |
+| `npm run test:mobile` | Run mobile client Vitest test suites (11 tests) |
 | `npm run typecheck` | Run `tsc --noEmit` across all workspaces |
 | `npm run db:migrate` | Run Prisma database migrations |
 | `npm run db:generate` | Regenerate Prisma client |

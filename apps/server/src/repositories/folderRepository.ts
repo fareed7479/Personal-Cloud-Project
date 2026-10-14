@@ -59,6 +59,22 @@ export class FolderRepository {
     return folders.map((f) => this.toMetadata(f));
   }
 
+  async getBreadcrumbs(folderId: string): Promise<Array<{ id: string; name: string; path: string }>> {
+    const breadcrumbs: Array<{ id: string; name: string; path: string }> = [];
+    let currentId: string | null = folderId;
+
+    while (currentId) {
+      const item: Folder | null = await prisma.folder.findUnique({
+        where: { id: currentId },
+      });
+      if (!item || item.isDeleted) break;
+      breadcrumbs.unshift({ id: item.id, name: item.name, path: item.path });
+      currentId = item.parentId;
+    }
+
+    return breadcrumbs;
+  }
+
   async create(data: {
     name: string;
     path: string;

@@ -173,5 +173,43 @@ describe('Mobile API Client & Config Service', () => {
       const client = new ApiClient();
       await expect(client.getHealth('http://192.168.99.99:4000')).rejects.toThrow(/Unable to connect to server/);
     });
+
+    it('should construct authenticated streaming, thumbnail, and download URLs with token', async () => {
+      await SecureStorageService.setAuthToken('my-secret-session-token');
+      const client = new ApiClient();
+
+      const thumbUrl = await client.getFileThumbnailUrl('file-123', 128, 128);
+      expect(thumbUrl).toContain('/api/v1/files/file-123/thumbnail?width=128&height=128&token=my-secret-session-token');
+
+      const viewUrl = await client.getFileViewUrl('file-123');
+      expect(viewUrl).toContain('/api/v1/files/file-123/view?token=my-secret-session-token');
+
+      const downloadUrl = await client.getFileDownloadUrl('file-123');
+      expect(downloadUrl).toContain('/api/v1/files/file-123/download?token=my-secret-session-token');
+
+      await SecureStorageService.clearAuthToken();
+    });
+
+    it('should fetch folder breadcrumbs via getFolderBreadcrumbs', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          data: [
+            { id: 'f-1', name: 'Documents', path: 'Documents' },
+            { id: 'f-2', name: 'Work', path: 'Documents/Work' },
+          ],
+        }),
+      } as Response);
+
+      const client = new ApiClient();
+      const res = await client.getFolderBreadcrumbs('f-2');
+
+      expect(res.success).toBe(true);
+      expect(res.data?.length).toBe(2);
+      expect(res.data?.[1].name).toBe('Work');
+    });
   });
 });
+

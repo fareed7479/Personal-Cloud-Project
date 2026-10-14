@@ -63,3 +63,21 @@ export async function createFolderHandler(req: Request, res: Response, next: Nex
     next(err);
   }
 }
+
+export async function getFolderBreadcrumbsHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const breadcrumbs = await folderService.getBreadcrumbs(id);
+
+    const response: ApiResponse<Array<{ id: string; name: string; path: string }>> = {
+      success: true,
+      data: breadcrumbs,
+      requestId: req.id,
+      timestamp: new Date().toISOString(),
+    };
+
+    res.status(200).json(response);
+  } catch (err) {
+    next(err);
+  }
+}

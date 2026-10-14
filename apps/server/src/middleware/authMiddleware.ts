@@ -14,18 +14,21 @@ declare global {
 
 export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    let token: string | undefined;
+
     const authHeader = req.headers['authorization'];
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7).trim();
+    } else if (typeof req.query.token === 'string' && req.query.token.trim()) {
+      token = req.query.token.trim();
+    }
+
+    if (!token) {
       throw new AppError(
         'Authentication required. Pair your mobile device to access this endpoint.',
         401,
         'AUTHENTICATION_REQUIRED'
       );
-    }
-
-    const token = authHeader.substring(7).trim();
-    if (!token) {
-      throw new AppError('Malformed authorization header.', 401, 'INVALID_TOKEN');
     }
 
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');

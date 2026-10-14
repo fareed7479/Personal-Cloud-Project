@@ -17,9 +17,13 @@ export const colors = {
   errorLight: 'rgba(239, 68, 68, 0.15)',
   
   text: '#F8FAFC',
+  textPrimary: '#F8FAFC',
   textSecondary: '#94A3B8',
   textMuted: '#64748B',
+  textTertiary: '#64748B',
   
+  card: '#131B2E',
   cardBg: '#131B2E',
   inputBg: '#0F172A',
+  white: '#FFFFFF',
 };

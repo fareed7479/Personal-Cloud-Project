@@ -243,6 +243,37 @@ export class ApiClient {
   async rescanStorage(): Promise<ApiResponse<IndexingResult>> {
     return this.request<IndexingResult>('/api/v1/storage/rescan', { method: 'POST' });
   }
+
+  /** Get folder breadcrumbs hierarchy */
+  async getFolderBreadcrumbs(folderId: string): Promise<ApiResponse<Array<{ id: string; name: string; path: string }>>> {
+    return this.request<Array<{ id: string; name: string; path: string }>>(`/api/v1/folders/${folderId}/breadcrumbs`, {
+      method: 'GET',
+    });
+  }
+
+  /** Construct an authenticated thumbnail URL for <Image> components */
+  async getFileThumbnailUrl(fileId: string, width = 256, height = 256): Promise<string> {
+    const baseUrl = await ServerConfigService.getServerUrl();
+    const token = await SecureStorageService.getAuthToken();
+    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
+    return `${baseUrl}/api/v1/files/${fileId}/thumbnail?width=${width}&height=${height}${tokenParam}`;
+  }
+
+  /** Construct an authenticated streaming media / view URL for <Video> or browser preview */
+  async getFileViewUrl(fileId: string): Promise<string> {
+    const baseUrl = await ServerConfigService.getServerUrl();
+    const token = await SecureStorageService.getAuthToken();
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${baseUrl}/api/v1/files/${fileId}/view${tokenParam}`;
+  }
+
+  /** Construct an authenticated download URL */
+  async getFileDownloadUrl(fileId: string): Promise<string> {
+    const baseUrl = await ServerConfigService.getServerUrl();
+    const token = await SecureStorageService.getAuthToken();
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${baseUrl}/api/v1/files/${fileId}/download${tokenParam}`;
+  }
 }
 
 export const apiClient = new ApiClient();
