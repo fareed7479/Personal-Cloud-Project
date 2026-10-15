@@ -1,7 +1,8 @@
-import { Request, Response, NextFunction } from 'express';
-import { ApiResponse } from '@personal-cloud/shared';
+import type { Request, Response, NextFunction } from 'express';
+import type { ApiResponse } from '@personal-cloud/shared';
 import { logger } from '../logger';
 import { config } from '../config';
+import { sanitizeUrlForLog } from '../utils/securityUtils';
 
 export class AppError extends Error {
   public readonly statusCode: number;
@@ -29,7 +30,8 @@ export function errorHandlerMiddleware(
   const errorCode = 'code' in err && typeof err.code === 'string' ? err.code : 'INTERNAL_SERVER_ERROR';
   const details = 'details' in err ? err.details : undefined;
 
-  logger.error(`Error processing ${req.method} ${req.originalUrl}: ${err.message}`, err, {
+  const sanitizedUrl = sanitizeUrlForLog(req.originalUrl);
+  logger.error(`Error processing ${req.method} ${sanitizedUrl}: ${err.message}`, err, {
     requestId: req.id,
     statusCode,
     errorCode,

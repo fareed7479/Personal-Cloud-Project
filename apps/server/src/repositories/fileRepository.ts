@@ -1,6 +1,6 @@
 import { prisma } from '../db/prisma';
-import { File, Prisma } from '@prisma/client';
-import { VirtualFileMetadata, FileListQuery, FileCategory } from '@personal-cloud/shared';
+import type { File as PrismaFile, Prisma } from '@prisma/client';
+import type { VirtualFileMetadata, FileListQuery, FileCategory } from '@personal-cloud/shared';
 
 export interface PaginatedFilesResult {
   files: VirtualFileMetadata[];
@@ -11,7 +11,7 @@ export interface PaginatedFilesResult {
 }
 
 export class FileRepository {
-  private toMetadata(file: File): VirtualFileMetadata {
+  private toMetadata(file: PrismaFile): VirtualFileMetadata {
     return {
       id: file.id,
       name: file.name,
@@ -70,7 +70,7 @@ export class FileRepository {
         take: limit,
         orderBy: {
           [sortBy]: sortOrder,
-        },
+        } as Prisma.FileOrderByWithRelationInput,
       }),
       prisma.file.count({ where }),
     ]);
@@ -134,9 +134,10 @@ export class FileRepository {
       thumbnailPath: string | null;
     }>
   ): Promise<VirtualFileMetadata> {
+    const { sizeBytes, ...restData } = data;
     const updatePayload: Prisma.FileUpdateInput = {
-      ...data,
-      ...(data.sizeBytes !== undefined ? { sizeBytes: BigInt(data.sizeBytes) } : {}),
+      ...restData,
+      ...(sizeBytes !== undefined ? { sizeBytes: BigInt(sizeBytes) } : {}),
     };
 
     const file = await prisma.file.update({

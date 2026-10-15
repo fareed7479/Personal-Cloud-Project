@@ -1,5 +1,5 @@
-import { Request, Response } from 'express';
-import { ApiResponse } from '@personal-cloud/shared';
+import type { Request, Response } from 'express';
+import type { ApiResponse } from '@personal-cloud/shared';
 
 export function notFoundMiddleware(req: Request, res: Response): void {
   const response: ApiResponse<null> = {

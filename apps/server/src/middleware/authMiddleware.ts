@@ -1,16 +1,8 @@
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { deviceRepository } from '../repositories/deviceRepository';
 import { AppError } from './errorHandler';
-import { Device } from '@prisma/client';
-
-declare global {
-  namespace Express {
-    interface Request {
-      device?: Device;
-    }
-  }
-}
+import type { Device } from '@prisma/client';
 
 export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
