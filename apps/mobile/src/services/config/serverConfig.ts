@@ -1,7 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 const STORAGE_KEY_SERVER_URL = '@personal_cloud/server_base_url';
-const DEFAULT_FALLBACK_URL = process.env.EXPO_PUBLIC_DEFAULT_SERVER_URL || 'http://10.0.2.2:4000';
+const DEFAULT_FALLBACK_URL =
+  process.env.EXPO_PUBLIC_DEFAULT_SERVER_URL ||
+  (Platform.OS === 'web' ? 'http://localhost:4000' : 'http://10.0.2.2:4000');
 
 let cachedServerUrl: string | null = null;
 
